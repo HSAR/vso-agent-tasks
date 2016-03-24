@@ -10,6 +10,7 @@ import tl = require('vsts-task-lib/task');
 import trm = require('vsts-task-lib/toolrunner');
 
 import pmd = require('../../../Tasks/Maven/pmdForMaven');
+import ar = require('../../../Tasks/Maven//analysisResult');
 
 describe('Maven Suite', function() {
     this.timeout(20000);
@@ -34,6 +35,22 @@ describe('Maven Suite', function() {
         assert(mvnRun.args.length == 2); // should have only the two expected arguments
         assert(mvnRun.args.indexOf('jxr:jxr') > -1); // should have the JXR goal (prerequisite for PMD)
         assert(mvnRun.args.indexOf('pmd:pmd') > -1); // should have the PMD goal
+        done();
+    });
+
+    it('Maven / PMD: Correct parsing of PMD XML file', (done) => {
+        // Arrange
+        var testSourceDirectory = path.join(__dirname, 'data');
+
+        // Act
+        var exampleResult = pmd.processPmdOutput(testSourceDirectory);
+
+        // Assert
+        assert(exampleResult);
+        assert(exampleResult.filesWithViolations == 2);
+        assert(exampleResult.totalViolations == 3);
+        assert(exampleResult.xmlFilePath.indexOf(testSourceDirectory) > -1);
+        assert(exampleResult.htmlFilePath.indexOf(testSourceDirectory) > -1);
         done();
     });
 });

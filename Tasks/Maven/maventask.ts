@@ -7,6 +7,7 @@ import tl = require('vsts-task-lib/task');
 import trm = require('vsts-task-lib/toolrunner');
 
 import pmd = require('./pmdForMaven');
+import ar = require('./analysisResult');
 
 var mvntool = '';
 var mavenVersionSelection = tl.getInput('mavenVersionSelection', true);
@@ -212,9 +213,15 @@ function createMavenSQRunner(sqHostUrl, sqHostUsername, sqHostPassword, sqDbUrl?
 function applyPmdGoals(mvnRun: trm.ToolRunner):void {
     if (tl.getInput('pmdAnalysisEnabled', true) != 'true') {
         console.log('PMD analysis is not enabled');
+        return;
     }
     console.log('PMD analysis is enabled');
     pmd.applyPmdArgs(mvnb);
+}
+
+// Take a result object and create one line of the build summary from it.
+function buildSummaryLineFromResult(analysisResult:ar.AnalysisResult):string {
+    return `${analysisResult.toolName} found ${analysisResult.totalViolations} violations in ${analysisResult.filesWithViolations} files.`;
 }
 
 /*
@@ -257,6 +264,35 @@ mvnv.exec()
     console.error(err.message);
     console.error("SonarQube analysis failed");
     sqRunFailed = true;
+})
+.then(function (code) { // Pick up code analysis file(s)
+    var analysisResults: ar.AnalysisResult[] = [];
+
+    // PMD
+    if (tl.getInput('pmdAnalysisEnabled', true) == 'true') {
+        var pmdResults:ar.AnalysisResult = pmd.processPmdOutput(tl.getVariable('build.sourcesDirectory'));
+        if (pmdResults) {
+            analysisResults.push(pmdResults);
+        }
+    }
+
+    // Process analysis results - upload files and generate build summary lines
+    var buildSummary:string = '';
+    analysisResults.forEach(analysisResult => {
+        buildSummary += buildSummaryLineFromResult(analysisResult) + "  \r\n";
+    });
+
+    // Save and upload build summary
+    var buildSummaryFilePath:string = path.join(tl.getVariable('build.sourcesDirectory'), "target", "buildsummary.md");
+    fs.writeFileSync(buildSummaryFilePath, buildSummary);
+    tl.command('task.addattachment', {
+        'type': 'Distributedtask.Core.Summary',
+        'name': "Code Analysis Report"
+    }, buildSummaryFilePath);
+})
+.fail(function (err) {
+    console.error(err.message);
+    console.error("PMD analysis failed");
 })
 .then(function () {
     // publish test results even if tests fail, causing Maven to fail;
