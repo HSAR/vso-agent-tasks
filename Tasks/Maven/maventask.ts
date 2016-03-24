@@ -1,7 +1,12 @@
 /// <reference path="../../definitions/vsts-task-lib.d.ts" />
 
-import tl = require('vsts-task-lib/task');
 import path = require('path');
+import fs = require('fs');
+
+import tl = require('vsts-task-lib/task');
+import trm = require('vsts-task-lib/toolrunner');
+
+import pmd = require('./pmdForMaven');
 
 var mvntool = '';
 var mavenVersionSelection = tl.getInput('mavenVersionSelection', true);
@@ -254,13 +259,22 @@ function processMavenOutput(data) {
     }
 }
 
+// check for and, if appropriate, add PMD analysis goals
+function applyPmdGoals(mvnRun: trm.ToolRunner):void {
+    if (tl.getInput('pmdAnalysisEnabled', true) != 'true') {
+        console.log('PMD analysis is not enabled');
+    }
+    console.log('PMD analysis is enabled');
+    pmd.applyPmdArgs(mvnb);
+}
+
 /*
 Maven task orchestration:
-1. Check that maven exists 
+1. Check that maven exists
 2. Run maven with the user goals. Compilation or test errors will cause this to fail
-3. Always try to publish tests results 
-4. Always try to run the SonarQube analysis if it is enabled. In case the build has failed, the analysis 
-will still succeed but the report will have less data. 
+3. Always try to publish tests results
+4. Always try to run the SonarQube analysis if it is enabled. In case the build has failed, the analysis
+will still succeed but the report will have less data.
 5. If #2 above failed, exit with an error code to mark the entire step as failed. Same for #4.
 */
 
@@ -274,6 +288,7 @@ mvnv.exec()
     process.exit(1);
 })
 .then(function (code) {
+    applyPmdGoals(mvnb);
         //read maven stdout
         mvnb.on('stdout', function (data) {
             processMavenOutput(data);
@@ -307,5 +322,5 @@ mvnv.exec()
         tl.exit(0); // mark task success
     }
 
-    // do not force an exit as publishing results is async and it won't have finished 
+    // do not force an exit as publishing results is async and it won't have finished
 })
