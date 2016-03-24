@@ -5,6 +5,9 @@ import assert = require('assert');
 import trm = require('../../lib/taskRunner');
 import path = require('path');
 
+import tr = require('../../lib/taskRunner');
+import tl = require('vsts-task-lib/task');
+
 function setResponseFile(name: string) {
 	process.env['MOCK_RESPONSES'] = path.join(__dirname, name);
 }
@@ -613,5 +616,18 @@ describe('maven Suite', function() {
 			done(err);
 		});
 	})
-	
+
+    it('Maven / PMD: Correct maven goals are applied', (done) => {
+        // Arrange
+        var mvnRun:trm.ToolRunner = tl.createToolRunner("mvn");
+
+        // Act
+        pmd.applyPmdArgs(mvnRun);
+
+        // Assert
+        assert(mvnRun.args.length == 2); // should have only the two expected arguments
+        assert(mvnRun.args.indexOf('jxr:jxr') > -1); // should have the JXR goal (prerequisite for PMD)
+        assert(mvnRun.args.indexOf('pmd:pmd') > -1); // should have the PMD goal
+        done();
+    });
 });
