@@ -1,0 +1,12 @@
+{
+  "name": "Agent.Tasks.Maven",
+  "version": "1.0.37",
+  "author": "Microsoft Corporation",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Microsoft/vso-agent-tasks/issues"
+  },
+  "dependencies": {
+    "xml2js": "^0.4.16"
+  }
+}
