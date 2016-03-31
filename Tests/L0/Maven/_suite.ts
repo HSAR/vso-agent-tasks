@@ -4,6 +4,7 @@
 
 import assert = require('assert');
 import path = require('path');
+import fs = require('fs');
 
 import tr = require('../../lib/taskRunner');
 import tl = require('vsts-task-lib/task');
@@ -32,9 +33,9 @@ describe('Maven Suite', function() {
         pmd.applyPmdArgs(mvnRun);
 
         // Assert
-        assert(mvnRun.args.length == 2); // should have only the two expected arguments
-        assert(mvnRun.args.indexOf('jxr:jxr') > -1); // should have the JXR goal (prerequisite for PMD)
-        assert(mvnRun.args.indexOf('pmd:pmd') > -1); // should have the PMD goal
+        assert(mvnRun.args.length == 2, 'should have only the two expected arguments');
+        assert(mvnRun.args.indexOf('jxr:jxr') > -1, 'should have the JXR goal (prerequisite for PMD)');
+        assert(mvnRun.args.indexOf('pmd:pmd') > -1, 'should have the PMD goal');
         done();
     });
 
@@ -46,11 +47,37 @@ describe('Maven Suite', function() {
         var exampleResult = pmd.processPmdOutput(testSourceDirectory);
 
         // Assert
+        assert(exampleResult, 'should have returned a non-null result');
+        assert(exampleResult.filesWithViolations == 2, 'should have the correct number of files');
+        assert(exampleResult.totalViolations == 3, 'should have the correct number of violations');
+        assert(exampleResult.xmlFilePath.indexOf(testSourceDirectory) > -1, 'should have a valid xml file path');
+        assert(exampleResult.htmlFilePath.indexOf(testSourceDirectory) > -1, 'should have a valid html file path');
+        done();
+    });
+
+    it('Maven / PMD: Elegant failure on malformed XML', (done) => {
+        // Arrange
+        var testDirectory = path.join(__dirname, 'incorrectXmlTest');
+        var testTargetPath = path.join(testDirectory, 'target');
+        var testSitePath = path.join(testDirectory, 'target', 'site');
+        tl.mkdirP(testTargetPath);
+        tl.mkdirP(testSitePath);
+
+        // setup test xml file
+        var testXmlString = "This isn't proper xml";
+        var testXmlFilePath = path.join(testTargetPath, 'pmd.xml');
+        fs.writeFileSync(testXmlFilePath, testXmlString);
+
+        // setup dummy html file
+        var dummyHtmlFilePath = path.join(testSitePath, 'pmd.html');
+        fs.writeFileSync(dummyHtmlFilePath, '');
+
+        // Act
+        var exampleResult = pmd.processPmdOutput(testDirectory);
+
+        // Assert
         assert(exampleResult);
-        assert(exampleResult.filesWithViolations == 2);
-        assert(exampleResult.totalViolations == 3);
-        assert(exampleResult.xmlFilePath.indexOf(testSourceDirectory) > -1);
-        assert(exampleResult.htmlFilePath.indexOf(testSourceDirectory) > -1);
+        assert(exampleResult.xmlFilePath == undefined);
         done();
     });
 });
