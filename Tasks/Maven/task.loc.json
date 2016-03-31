@@ -300,5 +300,9 @@
         "windows"
       ]
     }
+  },
+  "messages": {
+    "buildSummaryLineSomeViolations": "ms-resource:loc.messages.buildSummaryLineSomeViolations",
+    "buildSummaryLineNoViolations": "ms-resource:loc.messages.buildSummaryLineNoViolations"
   }
 }
