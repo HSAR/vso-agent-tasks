@@ -43,7 +43,7 @@ function processPmdHtml(analysisResult:ar.AnalysisResult, path:string):ar.Analys
     if (!tl.exist(path)) {
         tl.error("Could not find PMD HTML output at expected location: " + path);
         tl.error("Check that PMD ran successfully and that it is writing to the default location.");
-        tl.checkPath(path, path);
+        tl.exit(1);
     }
     analysisResult.htmlFilePath = path;
     return analysisResult;
@@ -56,7 +56,7 @@ function processPmdXml(analysisResult:ar.AnalysisResult, path:string):ar.Analysi
     if (!tl.exist(path)) {
         tl.error("Could not find PMD XML output at expected location: " + path);
         tl.error("Check that PMD ran successfully and that it is writing to the default location.");
-        tl.checkPath(path, path);
+        tl.exit(1);
     }
 
     var pmdXmlFileContents = fs.readFileSync(path, 'utf-8');

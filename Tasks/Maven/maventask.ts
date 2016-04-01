@@ -14,10 +14,7 @@ tl.setResourcePath(path.join( __dirname, 'task.json'));
 
 // Cache build variables - if they are null, we are in a test env and can use test inputs
 var sourcesDir:string = tl.getVariable('build.sourcesDirectory') || tl.getInput('test.sourcesDirectory');
-console.log("sourcesDir = " + sourcesDir);
 var stagingDir:string = tl.getVariable('build.stagingDirectory') || tl.getInput('test.stagingDirectory');
-console.log("stagingDir = " + stagingDir);
-
 
 var mvntool = '';
 var mavenVersionSelection = tl.getInput('mavenVersionSelection', true);
@@ -280,10 +277,15 @@ function applyPmdGoals(mvnRun: trm.ToolRunner):void {
     pmd.applyPmdArgs(mvnb);
 }
 
+// Returns true if any one code analysis tool was enabled.
+function isCodeAnalysisReportRequired():boolean {
+    return tl.getInput('pmdAnalysisEnabled', true) == 'true';
+}
+
 // Extract data from code analysis output files and upload results to build server
-function postCodeAnalysisResults():void {
+function postCodeAnalysisReport():void {
     // Need to run this if any one of the code analysis tools were run
-    if (tl.getInput('pmdAnalysisEnabled', true) == 'true') {
+    if (isCodeAnalysisReportRequired()) {
         var analysisResults:ar.AnalysisResult[] = [];
 
         // PMD
@@ -370,12 +372,13 @@ mvnv.exec()
     sqRunFailed = true;
 })
 .then(function (code) { // Pick up files from the Java code analysis tools
+    // The files won't be created if the build failed, and the user should probably fix their build first
     if (userRunFailed) {
         console.error('Could not retrieve code analysis results - Maven run failed.');
         return;
     }
 
-    postCodeAnalysisResults();
+    postCodeAnalysisReport();
 })
 .fail(function (err) {
     console.error(err.message);
