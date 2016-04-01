@@ -12,6 +12,13 @@ import ar = require('./analysisResult');
 // Set up for localization
 tl.setResourcePath(path.join( __dirname, 'task.json'));
 
+// Cache build variables - if they are null, we are in a test env and can use test inputs
+var sourcesDir:string = tl.getVariable('build.sourcesDirectory') || tl.getInput('test.sourcesDirectory');
+console.log("sourcesDir = " + sourcesDir);
+var stagingDir:string = tl.getVariable('build.stagingDirectory') || tl.getInput('test.stagingDirectory');
+console.log("stagingDir = " + stagingDir);
+
+
 var mvntool = '';
 var mavenVersionSelection = tl.getInput('mavenVersionSelection', true);
 if (mavenVersionSelection == 'Path') {
@@ -273,14 +280,15 @@ function applyPmdGoals(mvnRun: trm.ToolRunner):void {
     pmd.applyPmdArgs(mvnb);
 }
 
-function getCodeAnalysisResults():void {
+// Extract data from code analysis output files and upload results to build server
+function postCodeAnalysisResults():void {
     // Need to run this if any one of the code analysis tools were run
     if (tl.getInput('pmdAnalysisEnabled', true) == 'true') {
         var analysisResults:ar.AnalysisResult[] = [];
 
         // PMD
         if (tl.getInput('pmdAnalysisEnabled', true) == 'true') {
-            var pmdResults:ar.AnalysisResult = pmd.processPmdOutput(tl.getVariable('build.sourcesDirectory'));
+            var pmdResults:ar.AnalysisResult = pmd.processPmdOutput(sourcesDir);
             if (pmdResults) {
                 analysisResults.push(pmdResults);
             }
@@ -293,7 +301,7 @@ function getCodeAnalysisResults():void {
         });
 
         // Save and upload build summary
-        var buildSummaryFilePath:string = path.join(tl.getVariable('build.stagingDirectory'), 'CodeAnalysisBuildSummary.md');
+        var buildSummaryFilePath:string = path.join(stagingDir, 'CodeAnalysisBuildSummary.md');
         fs.writeFileSync(buildSummaryFilePath, buildSummaryString);
         tl.command('task.addattachment', {
             'type': 'Distributedtask.Core.Summary',
@@ -367,7 +375,7 @@ mvnv.exec()
         return;
     }
 
-    getCodeAnalysisResults();
+    postCodeAnalysisResults();
 })
 .fail(function (err) {
     console.error(err.message);
