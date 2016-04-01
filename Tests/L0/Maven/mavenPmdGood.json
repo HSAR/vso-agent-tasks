@@ -17,5 +17,6 @@
     "pom.xml": true
   },
   "exist": {
+    "pom.xml": true
   }
 }
