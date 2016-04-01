@@ -278,14 +278,43 @@ function applyPmdGoals(mvnRun: trm.ToolRunner):void {
 }
 
 // Returns true if any one code analysis tool was enabled.
-function isCodeAnalysisReportRequired():boolean {
+function isCodeAnalysisUploadRequired():boolean {
     return tl.getInput('pmdAnalysisEnabled', true) == 'true';
 }
 
+// Take a result object and attempt to upload the XML and HTML reports as artifacts. Throws if fail.
+function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
+    // make sure the staging folder exists and is empty
+    tl.rmRF(stagingDir);
+    tl.mkdirP(stagingDir);
+
+    var filesToUpload:string[] = [];
+    if (analysisResult.xmlFilePath) {
+        filesToUpload.push(analysisResult.xmlFilePath)
+    }
+    if (analysisResult.htmlFilePath) {
+        filesToUpload.push(analysisResult.htmlFilePath);
+    }
+
+    filesToUpload.forEach(fileToUpload => {
+        // Need copy files to the staging folder and upload the entire folder for compatibility with the Xplat agent
+        var stagingFilePath = path.join(stagingDir, path.basename(fileToUpload));
+        tl.debug('Staging ' + fileToUpload + ' to ' + stagingFilePath);
+        tl.cp('-f', fileToUpload, stagingFilePath);
+
+
+        if (!tl.exist(stagingFilePath)) {
+            console.warn('Could not find file to upload: ' + stagingFilePath)
+        } else {
+            console.info('Attempting to upload ' + stagingFilePath);
+        }
+
+    });
+
 // Extract data from code analysis output files and upload results to build server
-function postCodeAnalysisReport():void {
+function uploadCodeAnalysisResults():void {
     // Need to run this if any one of the code analysis tools were run
-    if (isCodeAnalysisReportRequired()) {
+    if (isCodeAnalysisUploadRequired()) {
         var analysisResults:ar.AnalysisResult[] = [];
 
         // PMD
@@ -299,6 +328,7 @@ function postCodeAnalysisReport():void {
         // Process analysis results - upload files and generate build summary lines
         var buildSummaryString:string = '';
         analysisResults.forEach(analysisResult => {
+            uploadBuildArtifactsFromResult(analysisResult);
             buildSummaryString += buildSummaryLineFromResult(analysisResult) + "  \r\n";
         });
 
@@ -378,7 +408,7 @@ mvnv.exec()
         return;
     }
 
-    postCodeAnalysisReport();
+    uploadCodeAnalysisResults();
 })
 .fail(function (err) {
     console.error(err.message);
