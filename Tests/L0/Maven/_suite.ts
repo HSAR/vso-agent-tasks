@@ -691,9 +691,11 @@ describe('maven Suite', function() {
         // Assert
         assert(exampleResult);
         assert(exampleResult.xmlFilePath == undefined);
+
+        // cleanup
+        tl.rmRF(testDirectory);
         done();
     });
-
 
     it('Maven / PMD: Executes PMD goals if PMD is enabled', (done) => {
         // Arrange
@@ -713,10 +715,11 @@ describe('maven Suite', function() {
         responseJsonContent.exist[testHtmlFilePath] = true;
         responseJsonContent.checkPath[testXmlFilePath] = true;
         responseJsonContent.checkPath[testHtmlFilePath] = true;
-        fs.writeFileSync(responseJsonFilePath, JSON.stringify(responseJsonContent));
+        var newResponseFilePath:string = path.join(__dirname, 'response.json');
+        fs.writeFileSync(newResponseFilePath, JSON.stringify(responseJsonContent));
 
         // Set the newly-changed response file
-        setResponseFile('mavenPmdGood.json');
+        setResponseFile('response.json');
 
         // Set up the task runner with the test settings
         var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
@@ -773,6 +776,59 @@ describe('maven Suite', function() {
                 done();
             })
             .fail((err) => {
+                done(err);
+            });
+    });
+
+    it('Maven / PMD: Should fail if XML output cannot be found', (done) => {
+        // Arrange
+
+        var testStgDir:string = path.join(__dirname, '_temp');
+        var testSrcDir:string = path.join(__dirname, 'data');
+        tl.rmRF(testStgDir);
+        tl.mkdirP(testStgDir);
+
+        // Add test file(s) to the response file so that tl.exist() and tl.checkPath() calls return correctly
+        var testXmlFilePath = path.join(testSrcDir, 'target', 'pmd.xml');
+        var testHtmlFilePath = path.join(testSrcDir, 'target', 'site', 'pmd.html');
+        var srcResponseFilePath:string = path.join(__dirname, 'mavenPmdGood.json');
+        var responseJsonContent = JSON.parse(fs.readFileSync(srcResponseFilePath, 'utf-8'));
+
+        responseJsonContent.exist[testXmlFilePath] = false; // return false for the XML file path
+        responseJsonContent.exist[testHtmlFilePath] = true;
+        responseJsonContent.checkPath[testXmlFilePath] = false;// return false for the XML file path
+        responseJsonContent.checkPath[testHtmlFilePath] = true;
+        var newResponseFilePath:string = path.join(__dirname, 'response.json');
+        fs.writeFileSync(newResponseFilePath, JSON.stringify(responseJsonContent));
+
+        // Set the newly-changed response file
+        setResponseFile('response.json');
+
+        // Set up the task runner with the test settings
+        var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
+        taskRunner.setInput('pmdAnalysisEnabled', 'true');
+        taskRunner.setInput('test.stagingDirectory', testStgDir);
+        taskRunner.setInput('test.sourcesDirectory', testSrcDir);
+
+        // Act
+        taskRunner.run()
+            .then(() => {
+                //console.log(taskRunner.stdout);
+
+                // Assert
+                assert(taskRunner.resultWasSet, 'should have set a result');
+                assert(taskRunner.stdout.length > 0, 'should have written to stdout');
+                assert(taskRunner.succeeded, 'task should have succeeded');
+
+                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package jxr:jxr pmd:pmd'),
+                    'should have run maven with the correct arguments');
+                assert(taskRunner.stdout.indexOf('task.addattachment type=Distributedtask.Core.Summary;name=Code Analysis Report') > -1,
+                    'should have uploaded a Code Analysis Report build summary');
+
+                done();
+            })
+            .fail((err) => {
+                console.log(taskRunner.stderr);
                 done(err);
             });
     });
