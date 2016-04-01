@@ -13,6 +13,26 @@ import trm = require('vsts-task-lib/toolrunner');
 import pmd = require('../../../Tasks/Maven/pmdForMaven');
 import ar = require('../../../Tasks/Maven//analysisResult');
 
+function setResponseFile(name: string) {
+    process.env['MOCK_RESPONSES'] = path.join(__dirname, name);
+}
+
+// Sets up a Maven TaskRunner instance with all of the required default settings
+function setupDefaultMavenTaskRunner():tr.TaskRunner {
+    var taskRunner = new tr.TaskRunner('Maven');
+    // default required settings
+    taskRunner.setInput('mavenVersionSelection', 'Default');
+    taskRunner.setInput('goals', 'package');
+    taskRunner.setInput('javaHomeSelection', 'JDKVersion');
+    taskRunner.setInput('jdkVersion', 'default');
+    taskRunner.setInput('jdkArchitecture', 'x86');
+    taskRunner.setInput('testResultsFiles', '**/TEST-*.xml');
+    taskRunner.setInput('sqAnalysisEnabled', 'false');
+    taskRunner.setInput('mavenPOMFile', 'pom.xml');
+
+    return taskRunner;
+}
+
 describe('Maven Suite', function() {
     this.timeout(20000);
 
@@ -79,5 +99,88 @@ describe('Maven Suite', function() {
         assert(exampleResult);
         assert(exampleResult.xmlFilePath == undefined);
         done();
+    });
+
+
+    it('Maven / PMD: Executes PMD goals if PMD is enabled', (done) => {
+        // Arrange
+
+        var testStgDir:string = path.join(__dirname, '_temp');
+        var testSrcDir:string = path.join(__dirname, 'data');
+        tl.rmRF(testStgDir);
+        tl.mkdirP(testStgDir);
+
+        // Add test file(s) to the response file so that tl.exist() and tl.checkPath() calls return correctly
+        var testXmlFilePath = path.join(testSrcDir, 'target', 'pmd.xml');
+        var testHtmlFilePath = path.join(testSrcDir, 'target', 'site', 'pmd.html');
+        var responseJsonFilePath:string = path.join(__dirname, 'mavenPmdGood.json');
+        var responseJsonContent = JSON.parse(fs.readFileSync(responseJsonFilePath, 'utf-8'));
+
+        responseJsonContent.exist[testXmlFilePath] = true;
+        responseJsonContent.exist[testHtmlFilePath] = true;
+        responseJsonContent.checkPath[testXmlFilePath] = true;
+        responseJsonContent.checkPath[testHtmlFilePath] = true;
+        fs.writeFileSync(responseJsonFilePath, JSON.stringify(responseJsonContent));
+
+        // Set the newly-changed response file
+        setResponseFile('mavenPmdGood.json');
+
+        // Set up the task runner with the test settings
+        var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
+        taskRunner.setInput('pmdAnalysisEnabled', 'true');
+        taskRunner.setInput('test.stagingDirectory', testStgDir);
+        taskRunner.setInput('test.sourcesDirectory', testSrcDir);
+
+        // Act
+        taskRunner.run()
+            .then(() => {
+                console.log(taskRunner.stdout);
+
+                // Assert
+                assert(taskRunner.resultWasSet, 'should have set a result');
+                assert(taskRunner.stdout.length > 0, 'should have written to stdout');
+                assert(taskRunner.succeeded, 'task should have succeeded');
+
+                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package jxr:jxr pmd:pmd'),
+                    'should have run maven with the correct arguments');
+                assert(taskRunner.stdout.indexOf('task.addattachment type=Distributedtask.Core.Summary;name=Code Analysis Report') > -1,
+                    'should have uploaded a Code Analysis Report build summary');
+
+                done();
+            })
+            .fail((err) => {
+                done(err);
+            });
+    });
+
+    it('Maven / PMD: Skips PMD goals if PMD is not enabled', (done) => {
+        // Arrange
+        setResponseFile('mavenGood.json');
+
+        // Set up the task runner with the test settings
+        var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
+        taskRunner.setInput('pmdAnalysisEnabled', 'false');
+
+        // Act
+        taskRunner.run()
+            .then(() => {
+                console.log(taskRunner.stdout);
+
+                // Assert
+                assert(taskRunner.resultWasSet, 'should have set a result');
+                assert(taskRunner.stdout.length > 0, 'should have written to stdout');
+                assert(taskRunner.succeeded, 'task should have succeeded');
+
+
+                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package'),
+                    'should have run maven without PMD arguments');
+                assert(taskRunner.stdout.indexOf('task.addattachment type=Distributedtask.Core.Summary;name=Code Analysis Report') < 1,
+                    'should not have uploaded a Code Analysis Report build summary');
+
+                done();
+            })
+            .fail((err) => {
+                done(err);
+            });
     });
 });

@@ -1,0 +1,21 @@
+{
+  "which": {
+    "npm": "/usr/local/bin/npm",
+    "mvn": "/usr/local/bin/mvn"
+  },
+  "exec": {
+    "/usr/local/bin/mvn -version": {
+      "code": 0,
+      "stdout": "mvn output here"
+    },
+    "/usr/local/bin/mvn -f pom.xml package jxr:jxr pmd:pmd": {
+      "code": 0,
+      "stdout": "mvn output here"
+    }
+  },
+  "checkPath": {
+    "pom.xml": true
+  },
+  "exist": {
+  }
+}
