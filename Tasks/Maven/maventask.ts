@@ -14,7 +14,7 @@ tl.setResourcePath(path.join( __dirname, 'task.json'));
 
 // Cache build variables - if they are null, we are in a test env and can use test inputs
 var sourcesDir:string = tl.getVariable('build.sourcesDirectory') || tl.getInput('test.sourcesDirectory');
-var stagingDir:string = tl.getVariable('build.stagingDirectory') || tl.getInput('test.stagingDirectory');
+var stagingDir:string = tl.getVariable('build.artifactStagingDirectory') || tl.getInput('test.artifactStagingDirectory');
 
 var mvntool = '';
 var mavenVersionSelection = tl.getInput('mavenVersionSelection', true);
@@ -296,19 +296,20 @@ function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
     }
 
     filesToUpload.forEach(fileToUpload => {
-        // Need copy files to the staging folder and upload the entire folder for compatibility with the Xplat agent
+        // Copy files to a staging folder and upload the entire folder
+        // This is a workaround until the following bug is fixed: https://github.com/Microsoft/vso-agent/issues/263
         var stagingFilePath = path.join(stagingDir, path.basename(fileToUpload));
         tl.debug('Staging ' + fileToUpload + ' to ' + stagingFilePath);
         tl.cp('-f', fileToUpload, stagingFilePath);
-
-
-        if (!tl.exist(stagingFilePath)) {
-            console.warn('Could not find file to upload: ' + stagingFilePath)
-        } else {
-            console.info('Attempting to upload ' + stagingFilePath);
-        }
-
     });
+
+    console.info('Uploading artifacts for ' + analysisResult.toolName);
+
+    tl.command("artifact.upload", {
+        containerfolder: 'codeAnalysis',
+        artifactname: analysisResult.toolName
+    }, stagingDir);
+}
 
 // Extract data from code analysis output files and upload results to build server
 function uploadCodeAnalysisResults():void {
@@ -318,9 +319,14 @@ function uploadCodeAnalysisResults():void {
 
         // PMD
         if (tl.getInput('pmdAnalysisEnabled', true) == 'true') {
-            var pmdResults:ar.AnalysisResult = pmd.processPmdOutput(sourcesDir);
-            if (pmdResults) {
-                analysisResults.push(pmdResults);
+            try {
+                var pmdResults:ar.AnalysisResult = pmd.processPmdOutput(sourcesDir);
+                if (pmdResults) {
+                    analysisResults.push(pmdResults);
+                }
+            } catch(e) {
+                tl.error(e.message);
+                tl.exit(1);
             }
         }
 
