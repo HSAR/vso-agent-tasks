@@ -41,9 +41,7 @@ export function processPmdOutput(sourcesDirectory:string) : ar.AnalysisResult {
 function processPmdHtml(analysisResult:ar.AnalysisResult, path:string):ar.AnalysisResult {
     // Task fails if the file cannot be found.
     if (!tl.exist(path)) {
-        tl.error("Could not find PMD HTML output at expected location: " + path);
-        tl.error("Check that PMD ran successfully and that it is writing to the default location.");
-        tl.exit(1);
+        throw new Error("Could not find PMD HTML output. Check that PMD ran successfully and that it is writing to the default location.");
     }
     analysisResult.htmlFilePath = path;
     return analysisResult;
@@ -54,9 +52,7 @@ function processPmdHtml(analysisResult:ar.AnalysisResult, path:string):ar.Analys
 // Task fails if the file cannot be found.
 function processPmdXml(analysisResult:ar.AnalysisResult, path:string):ar.AnalysisResult {
     if (!tl.exist(path)) {
-        tl.error("Could not find PMD XML output at expected location: " + path);
-        tl.error("Check that PMD ran successfully and that it is writing to the default location.");
-        tl.exit(1);
+        throw new Error("Could not find PMD XML output. Check that PMD ran successfully and that it is writing to the default location.");
     }
 
     var pmdXmlFileContents = fs.readFileSync(path, 'utf-8');
@@ -76,7 +72,7 @@ function processPmdXml(analysisResult:ar.AnalysisResult, path:string):ar.Analysi
                 analysisResult.totalViolations += file.violation.length;
             });
         } else {
-            tl.error("Failed to parse XML output from PMD.")
+            throw new Error("Failed to parse XML output from PMD.");
         }
     });
     return analysisResult;
