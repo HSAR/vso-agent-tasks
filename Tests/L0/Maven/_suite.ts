@@ -75,7 +75,7 @@ describe('Maven Suite', function() {
         done();
     });
 
-    it('Maven / PMD: Elegant failure on malformed XML', (done) => {
+    it('Maven / PMD: Should throw on malformed XML', (done) => {
         // Arrange
         var testDirectory = path.join(__dirname, 'incorrectXmlTest');
         var testTargetPath = path.join(testDirectory, 'target');
@@ -93,15 +93,20 @@ describe('Maven Suite', function() {
         fs.writeFileSync(dummyHtmlFilePath, '');
 
         // Act
-        var exampleResult = pmd.processPmdOutput(testDirectory);
+        var exampleResult;
+        try {
+            exampleResult = pmd.processPmdOutput(testDirectory);
 
-        // Assert
-        assert(exampleResult);
-        assert(exampleResult.xmlFilePath == undefined);
+            // Should never reach this line
+            assert(false, 'Failed to correctly throw on invalid XML');
+        } catch(e) {
+            // Assert
+            assert(e);
 
-        // cleanup
-        tl.rmRF(testDirectory);
-        done();
+            // cleanup
+            tl.rmRF(testDirectory);
+            done();
+        }
     });
 
     it('Maven / PMD: Executes PMD goals if PMD is enabled', (done) => {
@@ -214,13 +219,13 @@ describe('Maven Suite', function() {
         // Set up the task runner with the test settings
         var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
         taskRunner.setInput('pmdAnalysisEnabled', 'true');
-        taskRunner.setInput('test.stagingDirectory', testStgDir);
+        taskRunner.setInput('test.artifactStagingDirectory', testStgDir);
         taskRunner.setInput('test.sourcesDirectory', testSrcDir);
 
         // Act
         taskRunner.run()
             .then(() => {
-                //console.log(taskRunner.stdout);
+                console.log(taskRunner.stdout);
 
                 // Assert
                 assert(taskRunner.resultWasSet, 'should have set a result');
