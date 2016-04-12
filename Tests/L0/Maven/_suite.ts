@@ -49,6 +49,8 @@ describe('Maven Suite', function() {
         tl.rmRF(testStgDir);
         tl.mkdirP(testStgDir);
 
+        tl.mkdirP(path.join(testStgDir, '.pmd')); // Manually create the .pmd subfolder for test purposes
+
         // Add test file(s) to the response file so that tl.exist() and tl.checkPath() calls return correctly
         var testXmlFilePath = path.join(testSrcDir, 'target', 'pmd.xml');
         var testHtmlFilePath = path.join(testSrcDir, 'target', 'site', 'pmd.html');
@@ -68,9 +70,14 @@ describe('Maven Suite', function() {
             success: true,
             message: "foo bar"
         };
+        responseJsonContent.rmRF[path.join(testStgDir, '.pmd')] = { // PMD subdir is used for artifact staging
+            success: true,
+            message: "foo bar"
+        };
 
         responseJsonContent.mkdirP = responseJsonContent.mkdirP || {};
         responseJsonContent.mkdirP[testStgDir] = true;
+        responseJsonContent.mkdirP[path.join(testStgDir, '.pmd')] = true;
 
         var newResponseFilePath:string = path.join(testStgDir, 'response.json');
         fs.writeFileSync(newResponseFilePath, JSON.stringify(responseJsonContent));
@@ -110,16 +117,23 @@ describe('Maven Suite', function() {
 
     it('Maven / PMD: Skips PMD goals if PMD is not enabled', (done) => {
         // Arrange
+        var testStgDir:string = path.join(__dirname, '_temp');
+        var testSrcDir:string = path.join(__dirname, 'data');
+        tl.rmRF(testStgDir);
+        tl.mkdirP(testStgDir);
+
         setResponseFile(path.join(__dirname, 'mavenGood.json'));
 
         // Set up the task runner with the test settings
         var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
         taskRunner.setInput('pmdAnalysisEnabled', 'false');
+        taskRunner.setInput('test.artifactStagingDirectory', testStgDir);
+        taskRunner.setInput('test.sourcesDirectory', testSrcDir);
 
         // Act
         taskRunner.run()
             .then(() => {
-                console.log(taskRunner.stdout);
+                //console.log(taskRunner.stdout);
 
                 // Assert
                 assert(taskRunner.resultWasSet, 'should have set a result');
@@ -171,7 +185,7 @@ describe('Maven Suite', function() {
         // Act
         taskRunner.run()
             .then(() => {
-                console.log(taskRunner.stdout);
+                //console.log(taskRunner.stdout);
 
                 // Assert
                 assert(taskRunner.resultWasSet, 'should have set a result');

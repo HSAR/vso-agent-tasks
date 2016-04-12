@@ -8,7 +8,7 @@ import xml2js = require('xml2js');
 import tl = require('vsts-task-lib/task');
 import trm = require('vsts-task-lib/toolrunner');
 
-import ar = require('./analysisResult');
+import ar = require('./analysisresult');
 
 // Adds PMD goals, if selected by the user
 export function applyPmdArgs(mvnRun: trm.ToolRunner):void {
