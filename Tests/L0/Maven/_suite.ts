@@ -1,6 +1,5 @@
 /// <reference path="../../../definitions/mocha.d.ts"/>
 /// <reference path="../../../definitions/node.d.ts"/>
-/// <reference path='../../../Tasks/Maven/pmdForMaven.ts'/>
 
 import assert = require('assert');
 import trm = require('../../lib/taskRunner');
@@ -716,10 +715,23 @@ describe('maven Suite', function() {
         var responseJsonFilePath:string = path.join(__dirname, 'mavenPmdGood.json');
         var responseJsonContent = JSON.parse(fs.readFileSync(responseJsonFilePath, 'utf-8'));
 
+        responseJsonContent.exist = responseJsonContent.exist || {}; // create empty object only if it did not already exist
         responseJsonContent.exist[testXmlFilePath] = true;
         responseJsonContent.exist[testHtmlFilePath] = true;
+
+        responseJsonContent.checkPath = responseJsonContent.checkPath || {};
         responseJsonContent.checkPath[testXmlFilePath] = true;
         responseJsonContent.checkPath[testHtmlFilePath] = true;
+
+        responseJsonContent.rmRF = responseJsonContent.rmRF || {};
+        responseJsonContent.rmRF[testStgDir] = {
+            success: true,
+            message: "foo bar"
+        };
+
+        responseJsonContent.mkdirP = responseJsonContent.mkdirP || {};
+        responseJsonContent.mkdirP[testStgDir] = true;
+
         var newResponseFilePath:string = path.join(__dirname, 'response.json');
         fs.writeFileSync(newResponseFilePath, JSON.stringify(responseJsonContent));
 
@@ -729,7 +741,7 @@ describe('maven Suite', function() {
         // Set up the task runner with the test settings
         var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
         taskRunner.setInput('pmdAnalysisEnabled', 'true');
-        taskRunner.setInput('test.stagingDirectory', testStgDir);
+        taskRunner.setInput('test.artifactStagingDirectory', testStgDir);
         taskRunner.setInput('test.sourcesDirectory', testSrcDir);
 
         // Act
@@ -746,6 +758,8 @@ describe('maven Suite', function() {
                     'should have run maven with the correct arguments');
                 assert(taskRunner.stdout.indexOf('task.addattachment type=Distributedtask.Core.Summary;name=Code Analysis Report') > -1,
                     'should have uploaded a Code Analysis Report build summary');
+                assert(taskRunner.stdout.indexOf('artifact.upload containerfolder=codeAnalysis;artifactname=PMD') > -1,
+                    'should have uploaded PMD build artifacts');
 
                 done();
             })
@@ -771,7 +785,6 @@ describe('maven Suite', function() {
                 assert(taskRunner.resultWasSet, 'should have set a result');
                 assert(taskRunner.stdout.length > 0, 'should have written to stdout');
                 assert(taskRunner.succeeded, 'task should have succeeded');
-
 
                 assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package'),
                     'should have run maven without PMD arguments');
@@ -823,12 +836,10 @@ describe('maven Suite', function() {
                 // Assert
                 assert(taskRunner.resultWasSet, 'should have set a result');
                 assert(taskRunner.stdout.length > 0, 'should have written to stdout');
-                assert(taskRunner.succeeded, 'task should have succeeded');
+                assert(taskRunner.failed, 'task should have failed');
 
                 assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package jxr:jxr pmd:pmd'),
                     'should have run maven with the correct arguments');
-                assert(taskRunner.stdout.indexOf('task.addattachment type=Distributedtask.Core.Summary;name=Code Analysis Report') > -1,
-                    'should have uploaded a Code Analysis Report build summary');
 
                 done();
             })
