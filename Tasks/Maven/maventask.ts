@@ -6,8 +6,8 @@ import fs = require('fs');
 import tl = require('vsts-task-lib/task');
 import trm = require('vsts-task-lib/toolrunner');
 
-import pmd = require('./pmdForMaven');
-import ar = require('./analysisResult');
+import pmd = require('./pmdformaven');
+import ar = require('./analysisresult');
 
 // Set up for localization
 tl.setResourcePath(path.join( __dirname, 'task.json'));
