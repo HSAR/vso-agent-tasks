@@ -6,6 +6,7 @@ import fs = require('fs');
 import tl = require('vsts-task-lib/task');
 import trm = require('vsts-task-lib/toolrunner');
 
+// Lowercased names are to lessen the likelihood of xplat issues
 import pmd = require('./pmdformaven');
 import ar = require('./analysisresult');
 
@@ -13,8 +14,9 @@ import ar = require('./analysisresult');
 tl.setResourcePath(path.join( __dirname, 'task.json'));
 
 // Cache build variables - if they are null, we are in a test env and can use test inputs
+// The artifact staging directory will be a subdirectory just to be safe.
 var sourcesDir:string = tl.getVariable('build.sourcesDirectory') || tl.getInput('test.sourcesDirectory');
-var stagingDir:string = tl.getVariable('build.artifactStagingDirectory') || tl.getInput('test.artifactStagingDirectory');
+var stagingDir:string = path.join(tl.getVariable('build.artifactStagingDirectory') || tl.getInput('test.artifactStagingDirectory'), ".pmd");
 
 var mvntool = '';
 var mavenVersionSelection = tl.getInput('mavenVersionSelection', true);
@@ -296,11 +298,12 @@ function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
         filesToUpload.push(analysisResult.htmlFilePath);
     }
 
+    // Copy files to a staging folder and upload the entire folder
+    // This is a workaround until the following bug is fixed: https://github.com/Microsoft/vso-agent/issues/263
     filesToUpload.forEach(fileToUpload => {
-        // Copy files to a staging folder and upload the entire folder
-        // This is a workaround until the following bug is fixed: https://github.com/Microsoft/vso-agent/issues/263
         var stagingFilePath = path.join(stagingDir, path.basename(fileToUpload));
         tl.debug('Staging ' + fileToUpload + ' to ' + stagingFilePath);
+        // Execute the copy operation. -f overwrites if there is already a file at the destination.
         tl.cp('-f', fileToUpload, stagingFilePath);
     });
 
@@ -310,6 +313,9 @@ function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
         containerfolder: 'codeAnalysis',
         artifactname: analysisResult.toolName
     }, stagingDir);
+
+    // clean up afterwards
+    tl.rmRF(stagingDir);
 }
 
 // Extract data from code analysis output files and upload results to build server
