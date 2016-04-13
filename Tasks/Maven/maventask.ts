@@ -315,6 +315,7 @@ function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
 
     // clean up afterwards
     tl.rmRF(stagingDir);
+    tl.mkdirP(stagingDir);
 }
 
 // Extract data from code analysis output files and upload results to build server
@@ -345,11 +346,17 @@ function uploadCodeAnalysisResults():void {
 
         // Save and upload build summary
         var buildSummaryFilePath:string = path.join(stagingDir, 'CodeAnalysisBuildSummary.md');
+        tl.debug('Writing build summary to ' + buildSummaryFilePath);
         fs.writeFileSync(buildSummaryFilePath, buildSummaryString);
+
         tl.command('task.addattachment', {
             'type': 'Distributedtask.Core.Summary',
             'name': "Code Analysis Report"
         }, buildSummaryFilePath);
+
+        // clean up afterwards
+        tl.rmRF(stagingDir);
+        tl.mkdirP(stagingDir);
     }
 }
 
