@@ -1,10 +1,12 @@
 /// <reference path="../../definitions/vsts-task-lib.d.ts" />
+/// <reference path="../../definitions/Q.d.ts" />
 
 import path = require('path');
 import fs = require('fs');
 
 import tl = require('vsts-task-lib/task');
 import trm = require('vsts-task-lib/toolrunner');
+import Q = require('q');
 
 // Lowercased names are to lessen the likelihood of xplat issues
 import pmd = require('./pmdformaven');
@@ -16,7 +18,8 @@ tl.setResourcePath(path.join( __dirname, 'task.json'));
 // Cache build variables - if they are null, we are in a test env and can use test inputs
 // The artifact staging directory will be a subdirectory just to be safe.
 var sourcesDir:string = tl.getVariable('build.sourcesDirectory') || tl.getInput('test.sourcesDirectory');
-var stagingDir:string = path.join(tl.getVariable('build.artifactStagingDirectory') || tl.getInput('test.artifactStagingDirectory'), ".pmd");
+var stagingDir:string = path.join(tl.getVariable('build.artifactStagingDirectory') || tl.getInput('test.artifactStagingDirectory'), ".codeanalysis");
+var buildNumber:string = tl.getVariable('build.buildNumber') || tl.getInput('test.buildNumber');
 
 var mvntool = '';
 var mavenVersionSelection = tl.getInput('mavenVersionSelection', true);
@@ -284,12 +287,28 @@ function isCodeAnalysisUploadRequired():boolean {
     return tl.getInput('pmdAnalysisEnabled', true) == 'true';
 }
 
-// Take a result object and attempt to upload the XML and HTML reports as artifacts. Throws if fail.
-function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
-    // make sure the staging folder exists and is empty
-    tl.rmRF(stagingDir);
-    tl.mkdirP(stagingDir);
+function cleanDirectory(targetDirectory:string):Q.Promise<void> {
+    var defer = Q.defer<void>();
 
+    tl.rmRF(targetDirectory);
+    tl.mkdirP(targetDirectory);
+
+    if (tl.exist(targetDirectory)) {
+        defer.resolve(undefined);
+    } else {
+        tl.debug('Failed to clean ' + targetDirectory + ': Could not create new directory after recursive delete.');
+        defer.reject(undefined);
+    }
+
+    return <Q.Promise<void>>defer.promise;
+}
+
+// Take a result object and promise to upload the XML and HTML reports as artifacts. Throws if fail.
+function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
+    var toolStagingDir:string = path.join(stagingDir, '.' + analysisResult.toolName.toLowerCase());
+    tl.mkdirP(toolStagingDir);
+
+    // make sure the staging folder exists and is empty
     var filesToUpload:string[] = [];
     if (analysisResult.xmlFilePath) {
         filesToUpload.push(analysisResult.xmlFilePath)
@@ -301,22 +320,19 @@ function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
     // Copy files to a staging folder and upload the entire folder
     // This is a workaround until the following bug is fixed: https://github.com/Microsoft/vso-agent/issues/263
     filesToUpload.forEach(fileToUpload => {
-        var stagingFilePath = path.join(stagingDir, path.basename(fileToUpload));
+        var stagingFilePath = path.join(toolStagingDir, path.basename(fileToUpload));
         tl.debug('Staging ' + fileToUpload + ' to ' + stagingFilePath);
         // Execute the copy operation. -f overwrites if there is already a file at the destination.
         tl.cp('-f', fileToUpload, stagingFilePath);
     });
 
-    console.info('Uploading artifacts for ' + analysisResult.toolName);
+    console.log('Uploading artifacts for ' + analysisResult.toolName + ' from ' + toolStagingDir);
 
     tl.command("artifact.upload", {
         containerfolder: 'codeAnalysis',
-        artifactname: analysisResult.toolName
-    }, stagingDir);
-
-    // clean up afterwards
-    tl.rmRF(stagingDir);
-    tl.mkdirP(stagingDir);
+        // Prefix the build number onto the upload for convenience
+        artifactname: buildNumber + '_' + analysisResult.toolName
+    }, toolStagingDir);
 }
 
 // Extract data from code analysis output files and upload results to build server
@@ -339,25 +355,25 @@ function uploadCodeAnalysisResults():void {
         }
 
         // Process analysis results - upload files and generate build summary lines
+
         var buildSummaryString:string = '';
-        analysisResults.forEach(analysisResult => {
-            uploadBuildArtifactsFromResult(analysisResult);
-            buildSummaryString += buildSummaryLineFromResult(analysisResult) + "  \r\n";
+        cleanDirectory(stagingDir).then(() => {
+            analysisResults.forEach(analysisResult => {
+                var buildSummaryLine:string = buildSummaryLineFromResult(analysisResult);
+                buildSummaryString += buildSummaryLine + "  \r\n";
+                uploadBuildArtifactsFromResult(analysisResult);
+            });
+        }).then(() => {
+            // Save and upload build summary
+            var buildSummaryFilePath:string = path.join(stagingDir, 'CodeAnalysisBuildSummary.md');
+            fs.writeFileSync(buildSummaryFilePath, buildSummaryString);
+            tl.debug('Uploading build summary from ' + buildSummaryFilePath);
+
+            tl.command('task.addattachment', {
+                'type': 'Distributedtask.Core.Summary',
+                'name': "Code Analysis Report"
+            }, buildSummaryFilePath);
         });
-
-        // Save and upload build summary
-        var buildSummaryFilePath:string = path.join(stagingDir, 'CodeAnalysisBuildSummary.md');
-        tl.debug('Writing build summary to ' + buildSummaryFilePath);
-        fs.writeFileSync(buildSummaryFilePath, buildSummaryString);
-
-        tl.command('task.addattachment', {
-            'type': 'Distributedtask.Core.Summary',
-            'name': "Code Analysis Report"
-        }, buildSummaryFilePath);
-
-        // clean up afterwards
-        tl.rmRF(stagingDir);
-        tl.mkdirP(stagingDir);
     }
 }
 
