@@ -44,42 +44,55 @@ describe('Maven Suite', function() {
     it('Maven / PMD: Executes PMD goals if PMD is enabled', (done) => {
         // Arrange
 
-        var testStgDir:string = path.join(__dirname, '_temp');
-        var testSrcDir:string = path.join(__dirname, 'data');
-        tl.rmRF(testStgDir);
-        tl.mkdirP(testStgDir);
+        var agentSrcDir:string = path.join(__dirname, 'data');
+        var agentStgDir:string = path.join(__dirname, '_temp');
+        var codeAnalysisStgDir:string = path.join(agentStgDir, '.codeanalysis'); // overall directory for all tools
+        var pmdStgDir:string = path.join(codeAnalysisStgDir, '.pmd'); // PMD subdir is used for artifact staging
 
-        tl.mkdirP(path.join(testStgDir, '.pmd')); // Manually create the .pmd subfolder for test purposes
 
-        // Add test file(s) to the response file so that tl.exist() and tl.checkPath() calls return correctly
-        var testXmlFilePath = path.join(testSrcDir, 'target', 'pmd.xml');
-        var testHtmlFilePath = path.join(testSrcDir, 'target', 'site', 'pmd.html');
+        tl.rmRF(agentStgDir);
+
+        // Create folders for test
+        tl.mkdirP(agentStgDir);
+        tl.mkdirP(codeAnalysisStgDir);
+        tl.mkdirP(pmdStgDir);
+
+        // Add set up the response file so that task library filesystem calls return correctly
+        // e.g. tl.exist(), tl.checkpath(), tl.rmRF(), tl.mkdirP()
+        var testXmlFilePath = path.join(agentSrcDir, 'target', 'pmd.xml');
+        var testHtmlFilePath = path.join(agentSrcDir, 'target', 'site', 'pmd.html');
         var responseJsonFilePath:string = path.join(__dirname, 'mavenPmdGood.json');
         var responseJsonContent = JSON.parse(fs.readFileSync(responseJsonFilePath, 'utf-8'));
 
         responseJsonContent.exist = responseJsonContent.exist || {}; // create empty object only if it did not already exist
+        responseJsonContent.exist[agentStgDir] = true;
+        responseJsonContent.exist[codeAnalysisStgDir] = true;
+        responseJsonContent.exist[pmdStgDir] = true;
         responseJsonContent.exist[testXmlFilePath] = true;
         responseJsonContent.exist[testHtmlFilePath] = true;
 
         responseJsonContent.checkPath = responseJsonContent.checkPath || {};
+        responseJsonContent.checkPath[agentStgDir] = true;
+        responseJsonContent.checkPath[codeAnalysisStgDir] = true;
+        responseJsonContent.checkPath[pmdStgDir] = true;
         responseJsonContent.checkPath[testXmlFilePath] = true;
         responseJsonContent.checkPath[testHtmlFilePath] = true;
 
         responseJsonContent.rmRF = responseJsonContent.rmRF || {};
-        responseJsonContent.rmRF[testStgDir] = {
+        var rmRFSuccessObj = {
             success: true,
             message: "foo bar"
         };
-        responseJsonContent.rmRF[path.join(testStgDir, '.pmd')] = { // PMD subdir is used for artifact staging
-            success: true,
-            message: "foo bar"
-        };
+        responseJsonContent.rmRF[agentStgDir] = rmRFSuccessObj;
+        responseJsonContent.rmRF[codeAnalysisStgDir] = rmRFSuccessObj;
+        responseJsonContent.rmRF[pmdStgDir] = rmRFSuccessObj;
 
         responseJsonContent.mkdirP = responseJsonContent.mkdirP || {};
-        responseJsonContent.mkdirP[testStgDir] = true;
-        responseJsonContent.mkdirP[path.join(testStgDir, '.pmd')] = true;
+        responseJsonContent.mkdirP[agentStgDir] = true;
+        responseJsonContent.mkdirP[codeAnalysisStgDir] = true;
+        responseJsonContent.mkdirP[pmdStgDir] = true;
 
-        var newResponseFilePath:string = path.join(testStgDir, 'response.json');
+        var newResponseFilePath:string = path.join(agentStgDir, 'response.json');
         fs.writeFileSync(newResponseFilePath, JSON.stringify(responseJsonContent));
 
         // Set the newly-changed response file
@@ -88,8 +101,8 @@ describe('Maven Suite', function() {
         // Set up the task runner with the test settings
         var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
         taskRunner.setInput('pmdAnalysisEnabled', 'true');
-        taskRunner.setInput('test.artifactStagingDirectory', testStgDir);
-        taskRunner.setInput('test.sourcesDirectory', testSrcDir);
+        taskRunner.setInput('test.artifactStagingDirectory', agentStgDir);
+        taskRunner.setInput('test.sourcesDirectory', agentSrcDir);
 
         // Act
         taskRunner.run()
@@ -105,12 +118,14 @@ describe('Maven Suite', function() {
                     'should have run maven with the correct arguments');
                 assert(taskRunner.stdout.indexOf('task.addattachment type=Distributedtask.Core.Summary;name=Code Analysis Report') > -1,
                     'should have uploaded a Code Analysis Report build summary');
-                assert(taskRunner.stdout.indexOf('artifact.upload containerfolder=codeAnalysis;artifactname=PMD') > -1,
+                assert(taskRunner.stdout.indexOf('artifact.upload containerfolder=codeAnalysis;artifactname=') > -1,
                     'should have uploaded PMD build artifacts');
 
                 done();
             })
             .fail((err) => {
+                console.log(taskRunner.stderr);
+                console.log(err);
                 done(err);
             });
     });
@@ -166,8 +181,10 @@ describe('Maven Suite', function() {
         var srcResponseFilePath:string = path.join(__dirname, 'mavenPmdGood.json');
         var responseJsonContent = JSON.parse(fs.readFileSync(srcResponseFilePath, 'utf-8'));
 
+        responseJsonContent.exist[testStgDir] = true;
         responseJsonContent.exist[testXmlFilePath] = false; // return false for the XML file path
         responseJsonContent.exist[testHtmlFilePath] = true;
+        responseJsonContent.checkPath[testStgDir] = true;
         responseJsonContent.checkPath[testXmlFilePath] = false;// return false for the XML file path
         responseJsonContent.checkPath[testHtmlFilePath] = true;
         var newResponseFilePath:string = path.join(testStgDir, 'response.json');
@@ -198,7 +215,6 @@ describe('Maven Suite', function() {
                 done();
             })
             .fail((err) => {
-                console.log(taskRunner.stderr);
                 done(err);
             });
     });
