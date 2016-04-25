@@ -11,6 +11,7 @@ import Q = require('q');
 // Lowercased names are to lessen the likelihood of xplat issues
 import pmd = require('./pmdformaven');
 import ar = require('./analysisresult');
+import ma = require('./moduleanalysis');
 
 // Set up for localization
 tl.setResourcePath(path.join( __dirname, 'task.json'));
@@ -272,6 +273,29 @@ function processMavenOutput(data) {
     }
 }
 
+// Identifies all maven modules below the root by the presence of a pom.xml file and a /target/ directory
+function findModules(folder:string):ma.ModuleAnalysis[] {
+    var result:ma.ModuleAnalysis[] = [];
+    var filesInFolder:string[] = fs.readdirSync(folder);
+
+    // Look for pom.xml and /target/
+    if ((filesInFolder.indexOf('pom.xml') > -1) && (filesInFolder.indexOf('target') > -1)) {
+        var newModule:ma.ModuleAnalysis = new ma.ModuleAnalysis();
+        newModule.moduleName = path.basename(folder);
+        newModule.rootFolder = folder;
+        result.push(newModule);
+    }
+
+    // Search subfolders
+    filesInFolder.forEach(function(fileInFolder) {
+        if (fs.statSync(path.join(folder, fileInFolder)).isDirectory()) {
+            result = result.concat(findModules(path.join(folder, fileInFolder)));
+        }
+    });
+
+    return result;
+}
+
 // check for and, if appropriate, add PMD analysis goals
 function applyPmdGoals(mvnRun: trm.ToolRunner):void {
     if (tl.getInput('pmdAnalysisEnabled', true) != 'true') {
@@ -282,9 +306,15 @@ function applyPmdGoals(mvnRun: trm.ToolRunner):void {
     pmd.applyPmdArgs(mvnb);
 }
 
-// Returns true if any one code analysis tool was enabled.
-function isCodeAnalysisUploadRequired():boolean {
-    return tl.getInput('pmdAnalysisEnabled', true) == 'true';
+// Returns the names of any enabled code analysis tools, or empty array if none.
+function getEnabledCodeAnalysisTools():string[] {
+    var result:string[] = [];
+
+    if (tl.getInput('pmdAnalysisEnabled', true) == 'true') {
+        result.push(pmd.toolName);
+    }
+
+    return result;
 }
 
 function cleanDirectory(targetDirectory:string):Q.Promise<void> {
@@ -303,70 +333,110 @@ function cleanDirectory(targetDirectory:string):Q.Promise<void> {
     return <Q.Promise<void>>defer.promise;
 }
 
-// Take a result object and promise to upload the XML and HTML reports as artifacts. Throws if fail.
-function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
-    var toolStagingDir:string = path.join(stagingDir, analysisResult.toolName.toLowerCase());
-    tl.mkdirP(toolStagingDir);
+// Returns the full path of the staging directory for a given tool.
+function getStagingDirectory(toolName:string):string {
+    return path.join(stagingDir, toolName.toLowerCase());
+}
+
+// Copy output files to a staging directory and upload them as build artifacts.
+// Each module uploads its own build artifact.
+function uploadBuildArtifacts(toolName:string, moduleAnalysis:ma.ModuleAnalysis):void {
+    var localStagingDir:string = path.join(getStagingDirectory(toolName), moduleAnalysis.moduleName);
+    tl.mkdirP(localStagingDir);
 
     var filesToUpload:string[] = [];
-    if (analysisResult.xmlFilePath) {
-        filesToUpload.push(analysisResult.xmlFilePath)
+    if (moduleAnalysis.analysisResults[toolName]) {
+        if (moduleAnalysis.analysisResults[toolName].xmlFilePath) {
+            filesToUpload.push(moduleAnalysis.analysisResults[toolName].xmlFilePath);
+        }
+        if (moduleAnalysis.analysisResults[toolName].htmlFilePath) {
+            filesToUpload.push(moduleAnalysis.analysisResults[toolName].htmlFilePath);
+        }
     }
-    if (analysisResult.htmlFilePath) {
-        filesToUpload.push(analysisResult.htmlFilePath);
+
+    if (filesToUpload.length < 1) {
+        console.log('No artifacts to upload for ' + toolName + ' analysis of module ' + moduleAnalysis.moduleName);
+        return;
     }
 
     // Copy files to a staging folder and upload the entire folder
     // This is a workaround until the following bug is fixed: https://github.com/Microsoft/vso-agent/issues/263
     filesToUpload.forEach(fileToUpload => {
-        var stagingFilePath = path.join(toolStagingDir, path.basename(fileToUpload));
+        var stagingFilePath = path.join(localStagingDir, path.basename(fileToUpload));
         tl.debug('Staging ' + fileToUpload + ' to ' + stagingFilePath);
         // Execute the copy operation. -f overwrites if there is already a file at the destination.
         tl.cp('-f', fileToUpload, stagingFilePath);
     });
 
-    console.log('Uploading artifacts for ' + analysisResult.toolName + ' from ' + toolStagingDir);
+    console.log('Uploading artifacts for ' + toolName + ' from ' + localStagingDir);
 
     // Begin artifact upload - this is an asynchronous operation and will finish in the future
     tl.command("artifact.upload", {
-        containerfolder: 'codeAnalysis',
+        // Put the artifacts in subdirectories corresponding to their module
+        containerfolder: moduleAnalysis.moduleName,
         // Prefix the build number onto the upload for convenience
-        artifactname: buildNumber + '_' + analysisResult.toolName
-    }, toolStagingDir);
+        artifactname: buildNumber + '_' + moduleAnalysis.moduleName + '_' + toolName
+    }, localStagingDir);
 }
 
 // Extract data from code analysis output files and upload results to build server
 function uploadCodeAnalysisResults():void {
     // Need to run this if any one of the code analysis tools were run
-    if (isCodeAnalysisUploadRequired()) {
-        var analysisResults:ar.AnalysisResult[] = [];
+    var enabledCodeAnalysisTools = getEnabledCodeAnalysisTools();
+    if (enabledCodeAnalysisTools.length > 0) {
+        // Discover maven modules
+        var modules:ma.ModuleAnalysis[] = findModules(sourcesDir);
 
-        // PMD
-        if (tl.getInput('pmdAnalysisEnabled', true) == 'true') {
-            try {
-                var pmdResults:ar.AnalysisResult = pmd.processPmdOutput(sourcesDir);
-                if (pmdResults) {
-                    analysisResults.push(pmdResults);
-                }
-            } catch(e) {
-                tl.error(e.message);
-                tl.exit(1);
+        // Special case: if the root turns up as a module, the automatic name won't do
+        modules.forEach((module) => {
+            if (module.rootFolder == sourcesDir) {
+                module.moduleName = 'root'
             }
-        }
+        });
 
-        // Process analysis results - upload files and generate build summary lines
+        tl.debug('Discovered ' + modules.length + ' Maven modules to upload results from.');
 
-        var buildSummaryString:string = '';
+        // Discover output files, summarise per-module results
+        modules.forEach((module) => {
+            // PMD
+            if (enabledCodeAnalysisTools.indexOf(pmd.toolName) > -1) {
+                try {
+                    var pmdResults:ar.AnalysisResult = pmd.processPmdOutput(module.rootFolder);
+                    if (pmdResults) {
+                        module.analysisResults[pmdResults.toolName] = pmdResults;
+                    }
+                } catch(e) {
+                    tl.error(e.message);
+                    tl.exit(1);
+                }
+            }
+
+        });
+
+
+        // Gather analysis results by tool for summaries, stage and upload build artifacts
+        var buildSummaryLines:string[] = [];
         cleanDirectory(stagingDir).then(() => {
-            analysisResults.forEach(analysisResult => {
-                var buildSummaryLine:string = buildSummaryLineFromResult(analysisResult);
-                buildSummaryString += buildSummaryLine + "  \r\n";
-                uploadBuildArtifactsFromResult(analysisResult);
+            enabledCodeAnalysisTools.forEach((toolName:string) => {
+                var toolAnalysisResults:ar.AnalysisResult[] = [];
+                modules.forEach((module:ma.ModuleAnalysis) => {
+                    var moduleAnalysisResult:ar.AnalysisResult = module.analysisResults[toolName];
+                    if (moduleAnalysisResult) {
+                        toolAnalysisResults.push(moduleAnalysisResult);
+                    }
+
+                    uploadBuildArtifacts(toolName, module);
+                });
+
+                // After looping through all modules, summarise tool output results
+                var summaryLine:string = createSummaryLine(toolName, toolAnalysisResults);
+                buildSummaryLines.push(summaryLine);
             });
         }).then(() => {
             // Save and upload build summary
+            var buildSummaryContents:string = buildSummaryLines.join("  \r\n");
             var buildSummaryFilePath:string = path.join(stagingDir, 'CodeAnalysisBuildSummary.md');
-            fs.writeFileSync(buildSummaryFilePath, buildSummaryString);
+            fs.writeFileSync(buildSummaryFilePath, buildSummaryContents);
             tl.debug('Uploading build summary from ' + buildSummaryFilePath);
 
             tl.command('task.addattachment', {
@@ -377,16 +447,23 @@ function uploadCodeAnalysisResults():void {
     }
 }
 
-// Take a result object and create one line of the build summary from it.
-function buildSummaryLineFromResult(analysisResult:ar.AnalysisResult):string {
+// For a given code analysis tool, create a one-line summary from multiple AnalysisResult objects.
+function createSummaryLine(toolName:string, analysisResults:ar.AnalysisResult[]):string {
+    var totalViolations:number = 0;
+    var filesWithViolations:number = 0;
+    analysisResults.forEach((analysisResult) => {
+        if (toolName = analysisResult.toolName) {
+            totalViolations += analysisResult.totalViolations;
+            filesWithViolations += analysisResult.filesWithViolations;
+        }
+    });
     // Localize and inject appropriate parameters
-    if (analysisResult.totalViolations > 0) {
+    if (totalViolations > 0) {
         // Looks like: "PMD found 13 violations in 4 files."
-        return tl.loc("buildSummaryLineSomeViolations", analysisResult.toolName,
-            analysisResult.totalViolations, analysisResult.filesWithViolations);
+        return tl.loc("buildSummaryLineSomeViolations", toolName, totalViolations, filesWithViolations);
     } else {
         // Looks like: "PMD found no violations."
-        return tl.loc("buildSummaryLineNoViolations", analysisResult.toolName);
+        return tl.loc("buildSummaryLineNoViolations", toolName);
     }
 }
 
