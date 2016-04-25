@@ -305,10 +305,9 @@ function cleanDirectory(targetDirectory:string):Q.Promise<void> {
 
 // Take a result object and promise to upload the XML and HTML reports as artifacts. Throws if fail.
 function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
-    var toolStagingDir:string = path.join(stagingDir, '.' + analysisResult.toolName.toLowerCase());
+    var toolStagingDir:string = path.join(stagingDir, analysisResult.toolName.toLowerCase());
     tl.mkdirP(toolStagingDir);
 
-    // make sure the staging folder exists and is empty
     var filesToUpload:string[] = [];
     if (analysisResult.xmlFilePath) {
         filesToUpload.push(analysisResult.xmlFilePath)
@@ -328,6 +327,7 @@ function uploadBuildArtifactsFromResult(analysisResult:ar.AnalysisResult):void {
 
     console.log('Uploading artifacts for ' + analysisResult.toolName + ' from ' + toolStagingDir);
 
+    // Begin artifact upload - this is an asynchronous operation and will finish in the future
     tl.command("artifact.upload", {
         containerfolder: 'codeAnalysis',
         // Prefix the build number onto the upload for convenience
@@ -397,7 +397,9 @@ Maven task orchestration:
 3. Always try to publish tests results
 4. Always try to run the SonarQube analysis if it is enabled. In case the build has failed, the analysis
 will still succeed but the report will have less data.
-5. If #2 above failed, exit with an error code to mark the entire step as failed. Same for #4.
+5. Check the maven run completed, which is an indication that the code analysis tools were run successfully.
+Process and upload any relevant results and summaries.
+6. If #2, #4 or #5 failed, exit with an error code to mark the entire step as failed.
 */
 
 var userRunFailed = false;
