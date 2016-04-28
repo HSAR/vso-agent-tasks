@@ -272,23 +272,27 @@ function processMavenOutput(data) {
     }
 }
 
-// Identifies all maven modules below the root by the presence of a pom.xml file and a /target/ directory
-function findModules(folder:string):ma.ModuleAnalysis[] {
+// Identifies maven modules below the root by the presence of a pom.xml file and a /target/ directory,
+// which is the conventional format of a Maven module.
+// There is a possibility of both false positives if the above two factors are identified in a directory
+// that is not an actual Maven module, or if the module is not currently being built.
+// The possibility of false positives should be taken into account when this method is called.
+function findCandidateModules(directory:string):ma.ModuleAnalysis[] {
     var result:ma.ModuleAnalysis[] = [];
-    var filesInFolder:string[] = fs.readdirSync(folder);
+    var filesInDirectory:string[] = fs.readdirSync(directory);
 
     // Look for pom.xml and /target/
-    if ((filesInFolder.indexOf('pom.xml') > -1) && (filesInFolder.indexOf('target') > -1)) {
+    if ((filesInDirectory.indexOf('pom.xml') > -1) && (filesInDirectory.indexOf('target') > -1)) {
         var newModule:ma.ModuleAnalysis = new ma.ModuleAnalysis();
-        newModule.moduleName = path.basename(folder);
-        newModule.rootFolder = folder;
+        newModule.moduleName = path.basename(directory);
+        newModule.rootDirectory = directory;
         result.push(newModule);
     }
 
-    // Search subfolders
-    filesInFolder.forEach(function(fileInFolder) {
-        if (fs.statSync(path.join(folder, fileInFolder)).isDirectory()) {
-            result = result.concat(findModules(path.join(folder, fileInFolder)));
+    // Search subdirectories
+    filesInDirectory.forEach(function(fileInDirectory:string) {
+        if (fs.statSync(path.join(directory, fileInDirectory)).isDirectory()) {
+            result = result.concat(findCandidateModules(path.join(directory, fileInDirectory)));
         }
     });
 
@@ -316,20 +320,11 @@ function getEnabledCodeAnalysisTools():string[] {
     return result;
 }
 
-function cleanDirectory(targetDirectory:string):Q.Promise<void> {
-    var defer = Q.defer<void>();
-
+function cleanDirectory(targetDirectory:string):boolean {
     tl.rmRF(targetDirectory);
     tl.mkdirP(targetDirectory);
 
-    if (tl.exist(targetDirectory)) {
-        defer.resolve(undefined);
-    } else {
-        tl.debug('Failed to clean ' + targetDirectory + ': Could not create new directory after recursive delete.');
-        defer.reject(undefined);
-    }
-
-    return <Q.Promise<void>>defer.promise;
+    return tl.exist(targetDirectory);
 }
 
 // Returns the full path of the staging directory for a given tool.
@@ -338,19 +333,16 @@ function getStagingDirectory(toolName:string):string {
 }
 
 // Copy output files to a staging directory and upload them as build artifacts.
-// Each module uploads its own build artifact.
+// Each tool-module combination uploads its own build artifact.
 function uploadBuildArtifacts(toolName:string, moduleAnalysis:ma.ModuleAnalysis):void {
+    // The staging directory is used as a place to copy files before group uploading them, and was originally
+    // related to the following bug: https://github.com/Microsoft/vso-agent/issues/263
     var localStagingDir:string = path.join(getStagingDirectory(toolName), moduleAnalysis.moduleName);
     tl.mkdirP(localStagingDir);
 
     var filesToUpload:string[] = [];
     if (moduleAnalysis.analysisResults[toolName]) {
-        if (moduleAnalysis.analysisResults[toolName].xmlFilePath) {
-            filesToUpload.push(moduleAnalysis.analysisResults[toolName].xmlFilePath);
-        }
-        if (moduleAnalysis.analysisResults[toolName].htmlFilePath) {
-            filesToUpload.push(moduleAnalysis.analysisResults[toolName].htmlFilePath);
-        }
+        filesToUpload = moduleAnalysis.analysisResults[toolName].filesToUpload;
     }
 
     if (filesToUpload.length < 1) {
@@ -358,9 +350,10 @@ function uploadBuildArtifacts(toolName:string, moduleAnalysis:ma.ModuleAnalysis)
         return;
     }
 
-    // Copy files to a staging folder and upload the entire folder
-    // This is a workaround until the following bug is fixed: https://github.com/Microsoft/vso-agent/issues/263
-    filesToUpload.forEach(fileToUpload => {
+    // Copy files to a staging directory so that they can all be uploaded at once
+    // This gives us a single artifact with all relevant files grouped together,
+    // giving a more organised experience in the artifact explorer.
+    filesToUpload.forEach((fileToUpload:string) => {
         var stagingFilePath = path.join(localStagingDir, path.basename(fileToUpload));
         tl.debug('Staging ' + fileToUpload + ' to ' + stagingFilePath);
         // Execute the copy operation. -f overwrites if there is already a file at the destination.
@@ -374,6 +367,7 @@ function uploadBuildArtifacts(toolName:string, moduleAnalysis:ma.ModuleAnalysis)
         // Put the artifacts in subdirectories corresponding to their module
         containerfolder: moduleAnalysis.moduleName,
         // Prefix the build number onto the upload for convenience
+        // NB: Artifact names need to be unique on an upload-by-upload basis
         artifactname: buildNumber + '_' + moduleAnalysis.moduleName + '_' + toolName
     }, localStagingDir);
 }
@@ -384,23 +378,23 @@ function uploadCodeAnalysisResults():void {
     var enabledCodeAnalysisTools = getEnabledCodeAnalysisTools();
     if (enabledCodeAnalysisTools.length > 0) {
         // Discover maven modules
-        var modules:ma.ModuleAnalysis[] = findModules(sourcesDir);
+        var modules:ma.ModuleAnalysis[] = findCandidateModules(sourcesDir);
 
         // Special case: if the root turns up as a module, the automatic name won't do
-        modules.forEach((module) => {
-            if (module.rootFolder == sourcesDir) {
-                module.moduleName = 'root'
+        modules.forEach((module:ma.ModuleAnalysis) => {
+            if (module.rootDirectory == sourcesDir) {
+                module.moduleName = 'root';
             }
         });
 
         tl.debug('Discovered ' + modules.length + ' Maven modules to upload results from.');
 
         // Discover output files, summarise per-module results
-        modules.forEach((module) => {
+        modules.forEach((module:ma.ModuleAnalysis) => {
             // PMD
             if (enabledCodeAnalysisTools.indexOf(pmd.toolName) > -1) {
                 try {
-                    var pmdResults:ar.AnalysisResult = pmd.processPmdOutput(module.rootFolder);
+                    var pmdResults:ar.AnalysisResult = pmd.collectPmdOutput(module.rootDirectory);
                     if (pmdResults) {
                         module.analysisResults[pmdResults.toolName] = pmdResults;
                     }
@@ -415,34 +409,40 @@ function uploadCodeAnalysisResults():void {
 
         // Gather analysis results by tool for summaries, stage and upload build artifacts
         var buildSummaryLines:string[] = [];
-        cleanDirectory(stagingDir).then(() => {
-            enabledCodeAnalysisTools.forEach((toolName:string) => {
-                var toolAnalysisResults:ar.AnalysisResult[] = [];
-                modules.forEach((module:ma.ModuleAnalysis) => {
-                    var moduleAnalysisResult:ar.AnalysisResult = module.analysisResults[toolName];
-                    if (moduleAnalysisResult) {
-                        toolAnalysisResults.push(moduleAnalysisResult);
-                    }
+        cleanDirectory(stagingDir);
 
-                    uploadBuildArtifacts(toolName, module);
-                });
+        enabledCodeAnalysisTools.forEach((toolName:string) => {
+            var toolAnalysisResults:ar.AnalysisResult[] = [];
+            modules.forEach((module:ma.ModuleAnalysis) => {
+                var moduleAnalysisResult:ar.AnalysisResult = module.analysisResults[toolName];
+                if (moduleAnalysisResult) {
+                    toolAnalysisResults.push(moduleAnalysisResult);
+                }
 
-                // After looping through all modules, summarise tool output results
-                var summaryLine:string = createSummaryLine(toolName, toolAnalysisResults);
-                buildSummaryLines.push(summaryLine);
+                uploadBuildArtifacts(toolName, module);
             });
-        }).then(() => {
-            // Save and upload build summary
-            var buildSummaryContents:string = buildSummaryLines.join("  \r\n");
-            var buildSummaryFilePath:string = path.join(stagingDir, 'CodeAnalysisBuildSummary.md');
-            fs.writeFileSync(buildSummaryFilePath, buildSummaryContents);
-            tl.debug('Uploading build summary from ' + buildSummaryFilePath);
 
-            tl.command('task.addattachment', {
-                'type': 'Distributedtask.Core.Summary',
-                'name': "Code Analysis Report"
-            }, buildSummaryFilePath);
+            // After looping through all modules, summarise tool output results
+            try {
+                var summaryLine:string = createSummaryLine(toolName, toolAnalysisResults);
+            } catch (error) {
+                tl.error(error.message);
+            }
+            buildSummaryLines.push(summaryLine);
         });
+
+        // Save and upload build summary
+        // Looks like: "PMD found 13 violations in 4 files.  \r\n
+        // FindBugs found 10 violations in 8 files."
+        var buildSummaryContents:string = buildSummaryLines.join("  \r\n"); // Double space is end of line in markdown
+        var buildSummaryFilePath:string = path.join(stagingDir, 'CodeAnalysisBuildSummary.md');
+        fs.writeFileSync(buildSummaryFilePath, buildSummaryContents);
+        tl.debug('Uploading build summary from ' + buildSummaryFilePath);
+
+        tl.command('task.addattachment', {
+            'type': 'Distributedtask.Core.Summary',
+            'name': "Code Analysis Report"
+        }, buildSummaryFilePath);
     }
 }
 
@@ -450,20 +450,34 @@ function uploadCodeAnalysisResults():void {
 function createSummaryLine(toolName:string, analysisResults:ar.AnalysisResult[]):string {
     var totalViolations:number = 0;
     var filesWithViolations:number = 0;
-    analysisResults.forEach((analysisResult) => {
+    analysisResults.forEach((analysisResult:ar.AnalysisResult) => {
         if (toolName = analysisResult.toolName) {
             totalViolations += analysisResult.totalViolations;
             filesWithViolations += analysisResult.filesWithViolations;
         }
     });
     // Localize and inject appropriate parameters
-    if (totalViolations > 0) {
-        // Looks like: "PMD found 13 violations in 4 files."
-        return tl.loc("buildSummaryLineSomeViolations", toolName, totalViolations, filesWithViolations);
-    } else {
-        // Looks like: "PMD found no violations."
-        return tl.loc("buildSummaryLineNoViolations", toolName);
+    if (totalViolations > 1) {
+        if (filesWithViolations > 1) {
+            // Looks like: 'PMD found 13 violations in 4 files.'
+            return tl.loc('codeAnalysisBuildSummaryLine_SomeViolationsSomeFiles', toolName, totalViolations, filesWithViolations);
+        }
+        if (filesWithViolations == 1) {
+            // Looks like: 'PMD found 13 violations in 1 file.'
+            return tl.loc('codeAnalysisBuildSummaryLine_SomeViolationsOneFile', toolName, totalViolations);
+        }
     }
+    if (totalViolations == 1 && filesWithViolations == 1) {
+            // Looks like: 'PMD found 1 violation in 1 file.'
+            return tl.loc('codeAnalysisBuildSummaryLine_OneViolationOneFile', toolName);
+    }
+    if (totalViolations == 0) {
+        // Looks like: 'PMD found no violations.'
+        return tl.loc('codeAnalysisBuildSummaryLine_NoViolations', toolName);
+    }
+    // There should be no valid code reason to reach this point - '1 violation in 4 files' is not expected
+    throw new Error('Unexpected results from ' + toolName + ': '
+        + totalViolations + 'total violations in ' + filesWithViolations + ' files');
 }
 
 /*

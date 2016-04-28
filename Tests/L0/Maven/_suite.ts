@@ -74,6 +74,14 @@ function setupMockResponsesForPaths(responseObject:any, paths: string[]) { // Ca
     return responseObject;
 }
 
+// Asserts the existence of a given line in the build summary file that is uploaded to the server.
+function assertBuildSummaryContainsLine(stagingDir:string, expectedLine:string):void {
+    var buildSummaryFilePath:string = path.join(stagingDir, '.codeanalysis', 'CodeAnalysisBuildSummary.md');
+    var buildSummaryString:string = fs.readFileSync(buildSummaryFilePath, 'utf-8');
+
+    assert(buildSummaryString.indexOf(expectedLine) > -1, "Expected build summary to contain: " + expectedLine);
+}
+
 describe('maven Suite', function() {
     this.timeout(20000);
 
@@ -744,13 +752,16 @@ describe('maven Suite', function() {
     });
 
     it('Maven / PMD: Executes PMD goals if PMD is enabled', (done) => {
-        // Arrange
+        // In the test data:
+        // /: pom.xml, target/.
+        // Expected: one module, root.
 
+        // Arrange
         var agentSrcDir:string = path.join(__dirname, 'data', 'singlemodule');
         var agentStgDir:string = path.join(__dirname, '_temp');
         var codeAnalysisStgDir:string = path.join(agentStgDir, '.codeanalysis'); // overall directory for all tools
         var pmdStgDir:string = path.join(codeAnalysisStgDir, '.pmd'); // PMD subdir is used for artifact staging
-        var moduleStgDir:string = path.join(pmdStgDir, 'data'); // one and only one module in test data, called data
+        var moduleStgDir:string = path.join(pmdStgDir, 'root'); // one and only one module in test data, called root
 
         tl.rmRF(agentStgDir);
 
@@ -789,19 +800,20 @@ describe('maven Suite', function() {
         // Act
         taskRunner.run()
             .then(() => {
-
                 // Assert
                 assert(taskRunner.resultWasSet, 'should have set a result');
                 assert(taskRunner.stdout.length > 0, 'should have written to stdout');
                 assert(taskRunner.succeeded, 'task should have succeeded');
 
-                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package pmd:pmd -DlinkXRef=false'),
+                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package pmd:pmd'),
                     'should have run maven with the correct arguments');
                 assert(taskRunner.stdout.indexOf('task.addattachment type=Distributedtask.Core.Summary;name=Code Analysis Report') > -1,
                     'should have uploaded a Code Analysis Report build summary');
 
-                assert(taskRunner.stdout.indexOf('artifact.upload containerfolder=singlemodule;artifactname=') > -1,
+                assert(taskRunner.stdout.indexOf('artifact.upload containerfolder=root;artifactname=') > -1,
                     'should have uploaded PMD build artifacts');
+
+                assertBuildSummaryContainsLine(agentStgDir, 'PMD found 3 violations in 2 files.');
 
                 done();
             })
@@ -814,13 +826,20 @@ describe('maven Suite', function() {
     });
 
     it('Maven / PMD: Detects and uploads results when multiple modules are present', (done) => {
-        // Arrange
+        // In the test data:
+        // /: pom.xml, no target/
+        // /util/: pom.xml, target/
+        // /ignored/: pom.xml, no target/
+        // /leveltwo/app/: pom.xml, target/
+        // /leveltwo/static/: no pom.xml, target/
 
+        // Arrange
         var agentSrcDir:string = path.join(__dirname, 'data', 'multimodule');
         var agentStgDir:string = path.join(__dirname, '_temp');
         var codeAnalysisStgDir:string = path.join(agentStgDir, '.codeanalysis'); // overall directory for all tools
         var pmdStgDir:string = path.join(codeAnalysisStgDir, '.pmd'); // PMD subdir is used for artifact staging
-        var moduleStgDir:string = path.join(pmdStgDir, 'data'); // one and only one module in test data, called data
+        var utilStgDir:string = path.join(pmdStgDir, 'util');
+        var appStgDir:string = path.join(pmdStgDir, 'leveltwo', 'app'); // two modules in test data, app and util
 
         tl.rmRF(agentStgDir);
 
@@ -828,7 +847,8 @@ describe('maven Suite', function() {
         tl.mkdirP(agentStgDir);
         tl.mkdirP(codeAnalysisStgDir);
         tl.mkdirP(pmdStgDir);
-        tl.mkdirP(moduleStgDir);
+        tl.mkdirP(utilStgDir);
+        tl.mkdirP(appStgDir);
 
         // Add set up the response file so that task library filesystem calls return correctly
         // e.g. tl.exist(), tl.checkpath(), tl.rmRF(), tl.mkdirP()
@@ -841,17 +861,13 @@ describe('maven Suite', function() {
         // Add fields corresponding to responses for mock filesystem operations for the following paths
         // Staging directories
         responseJsonContent = setupMockResponsesForPaths(responseJsonContent,
-            [testXmlFilePath, testHtmlFilePath, agentStgDir, codeAnalysisStgDir, pmdStgDir, moduleStgDir]);
+            [testXmlFilePath, testHtmlFilePath, agentStgDir, codeAnalysisStgDir, pmdStgDir, utilStgDir, appStgDir]);
         // Test data files
         responseJsonContent = setupMockResponsesForPaths(responseJsonContent, listFolderContents(agentSrcDir));
 
         // Write and set the newly-changed response file
-        var newResponseFilePath:string = path.join(agentStgDir, 'response.json');
-
         var newResponseFilePath:string = path.join(__dirname, 'response.json');
         fs.writeFileSync(newResponseFilePath, JSON.stringify(responseJsonContent));
-
-        // Set the newly-changed response file
         setResponseFile('response.json');
 
         // Set up the task runner with the test settings
@@ -869,7 +885,7 @@ describe('maven Suite', function() {
                 assert(taskRunner.stdout.length > 0, 'should have written to stdout');
                 assert(taskRunner.succeeded, 'task should have succeeded');
 
-                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package pmd:pmd -DlinkXRef=false'),
+                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package pmd:pmd'),
                     'should have run maven with the correct arguments');
                 assert(taskRunner.stdout.indexOf('task.addattachment type=Distributedtask.Core.Summary;name=Code Analysis Report') > -1,
                     'should have uploaded a Code Analysis Report build summary');
@@ -878,6 +894,8 @@ describe('maven Suite', function() {
                     'should have uploaded PMD build artifacts for the "app" module');
                 assert(taskRunner.stdout.indexOf('artifact.upload containerfolder=util;artifactname=') > -1,
                     'should have uploaded PMD build artifacts for the "util" module');
+
+                assertBuildSummaryContainsLine(agentStgDir, 'PMD found 6 violations in 4 files.');
 
                 done();
             })
@@ -971,7 +989,7 @@ describe('maven Suite', function() {
                 assert(taskRunner.stdout.length > 0, 'should have written to stdout');
                 assert(taskRunner.failed, 'task should have failed');
 
-                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package pmd:pmd -DlinkXRef=false'),
+                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package pmd:pmd'),
                     'should have run maven with the correct arguments');
 
                 done();
