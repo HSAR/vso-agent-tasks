@@ -3,6 +3,5 @@ export class AnalysisResult {
     toolName: string;
     filesWithViolations:number = 0;
     totalViolations:number = 0;
-    xmlFilePath:string = null;
-    htmlFilePath:string = null;
+    filesToUpload:string[] = [];
 }

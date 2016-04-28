@@ -1,6 +1,5 @@
 /// <reference path='../../definitions/vsts-task-lib.d.ts' />
 
-import util = require('util');
 import path = require('path');
 import fs = require('fs');
 import xml2js = require('xml2js');
@@ -14,24 +13,26 @@ export const toolName:string = 'PMD';
 
 // Adds PMD goals, if selected by the user
 export function applyPmdArgs(mvnRun: trm.ToolRunner):void {
-    mvnRun.arg(['pmd:pmd', '-DlinkXRef=false']); // Turn off cross-referencing to reduce Maven error output
+    // This setup will give a [WARNING] during Maven build due to missing cross-reference data when creating HTML output,
+    // but generating the data is not related to PMD code analysis. The feature can be disabled with -DlinkXRef=false.
+    mvnRun.arg(['pmd:pmd']);
 }
 
-// Extract analysis results from PMD output file.
+// Extract analysis results from PMD output files. We expect PMD to write its analysis results files to their default
+// names and locations within the target directory.
 // Takes the working directory (should contain pom.xml and target/) and returns an AnalysisResult data class.
-// Task fails if the HTML or XML outputs were not found.
 // @param sourcesDirectory - The absolute location of the root source directory.
-export function processPmdOutput(rootDir:string) : ar.AnalysisResult {
+export function collectPmdOutput(rootDir:string) : ar.AnalysisResult {
     var result:ar.AnalysisResult = new ar.AnalysisResult();
     result.toolName = toolName;
 
     var pmdXmlFilePath = path.join(rootDir, 'target', 'pmd.xml');
-    result = processPmdXml(result, pmdXmlFilePath);
+    result = collectPmdXml(result, pmdXmlFilePath);
 
     // if there are no violations, there will be no HTML report
     if (result.totalViolations > 0) {
         var pmdHtmlFilePath = path.join(rootDir, 'target', 'site', 'pmd.html');
-        result = processPmdHtml(result, pmdHtmlFilePath);
+        result = collectPmdHtml(result, pmdHtmlFilePath);
     }
 
     return result;
@@ -39,34 +40,31 @@ export function processPmdOutput(rootDir:string) : ar.AnalysisResult {
 
 // Verifies the existence of the HTML output file.
 // Modifies the relevant field within the returned object accordingly.
-function processPmdHtml(analysisResult:ar.AnalysisResult, path:string):ar.AnalysisResult {
+function collectPmdHtml(analysisResult:ar.AnalysisResult, path:string):ar.AnalysisResult {
     if (!tl.exist(path)) {
         tl.debug('PMD HTML not found at ' + path);
     } else {
-        analysisResult.htmlFilePath = path;
+        analysisResult.filesToUpload.push(path);
     }
     return analysisResult;
 }
 
 // Verifies the existence of the XML output file and parses its contents.
 // Modifies the relevant fields within the returned object accordingly.
-function processPmdXml(analysisResult:ar.AnalysisResult, path:string):ar.AnalysisResult {
+function collectPmdXml(analysisResult:ar.AnalysisResult, path:string):ar.AnalysisResult {
     if (!tl.exist(path)) {
         tl.debug('PMD XML not found at ' + path);
     }
 
     var pmdXmlFileContents = fs.readFileSync(path, 'utf-8');
     xml2js.parseString(pmdXmlFileContents, function (err, data) {
-        if (!data) { // Not an XML file, throw error
-            throw new Error("Failed to parse XML output from PMD.");
-        }
-        if (!data.pmd) { // Not a PMD XML, ignore
+        if (!data || !data.pmd) { // If the file is not in XML, or is from PMD, return immediately
             return analysisResult;
         }
 
-        analysisResult.xmlFilePath = path;
+        analysisResult.filesToUpload.push(path);
 
-        if (!data.pmd.file) { // No files with violations, return immediately
+        if (!data.pmd.file) { // No files with violations, return now that it has been marked for upload
             return analysisResult;
         }
 
