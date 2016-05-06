@@ -73,7 +73,7 @@ function setupMockResponsesForPaths(responseObject:any, paths: string[]) { // Ca
 
 // Asserts the existence of a given line in the build summary file that is uploaded to the server.
 function assertBuildSummaryContainsLine(stagingDir:string, expectedLine:string):void {
-    var buildSummaryFilePath:string = path.join(stagingDir, '.codeanalysis', 'CodeAnalysisBuildSummary.md');
+    var buildSummaryFilePath:string = path.join(stagingDir, '.codeAnalysis', 'CodeAnalysisBuildSummary.md');
     var buildSummaryString:string = fs.readFileSync(buildSummaryFilePath, 'utf-8');
 
     assert(buildSummaryString.indexOf(expectedLine) > -1, "Expected build summary to contain: " + expectedLine);
@@ -99,7 +99,7 @@ describe('Maven Suite', function() {
         // Arrange
         var agentSrcDir:string = path.join(__dirname, 'data', 'singlemodule');
         var agentStgDir:string = path.join(__dirname, '_temp');
-        var codeAnalysisStgDir:string = path.join(agentStgDir, '.codeanalysis'); // overall directory for all tools
+        var codeAnalysisStgDir:string = path.join(agentStgDir, '.codeAnalysis'); // overall directory for all tools
         var pmdStgDir:string = path.join(codeAnalysisStgDir, '.pmd'); // PMD subdir is used for artifact staging
         var moduleStgDir:string = path.join(pmdStgDir, 'root'); // one and only one module in test data, called root
 
@@ -176,7 +176,7 @@ describe('Maven Suite', function() {
         // Arrange
         var agentSrcDir:string = path.join(__dirname, 'data', 'multimodule');
         var agentStgDir:string = path.join(__dirname, '_temp');
-        var codeAnalysisStgDir:string = path.join(agentStgDir, '.codeanalysis'); // overall directory for all tools
+        var codeAnalysisStgDir:string = path.join(agentStgDir, '.codeAnalysis'); // overall directory for all tools
         var pmdStgDir:string = path.join(codeAnalysisStgDir, '.pmd'); // PMD subdir is used for artifact staging
         var utilStgDir:string = path.join(pmdStgDir, 'util');
         var appStgDir:string = path.join(pmdStgDir, 'leveltwo', 'app'); // two modules in test data, app and util
