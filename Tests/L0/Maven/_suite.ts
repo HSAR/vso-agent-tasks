@@ -689,14 +689,13 @@ describe('maven Suite', function() {
 
     it('Maven / PMD: Correct maven goals are applied', (done) => {
         // Arrange
-        var mvnRun:trm.ToolRunner = tl.createToolRunner("mvn");
+        var mvnRun = tl.createToolRunner("mvn");
 
         // Act
         pmd.applyPmdArgs(mvnRun);
 
         // Assert
-        assert(mvnRun.args.length == 2, 'should have only the two expected arguments');
-        assert(mvnRun.args.indexOf('jxr:jxr') > -1, 'should have the JXR goal (prerequisite for PMD)');
+        assert(mvnRun.args.length == 1, 'expecting only one argument');
         assert(mvnRun.args.indexOf('pmd:pmd') > -1, 'should have the PMD goal');
         done();
     });
@@ -706,14 +705,13 @@ describe('maven Suite', function() {
         var testSourceDirectory = path.join(__dirname, 'data');
 
         // Act
-        var exampleResult = pmd.processPmdOutput(testSourceDirectory);
+        var exampleResult = pmd.collectPmdOutput(path.join(testSourceDirectory, 'singlemodule'));
 
         // Assert
         assert(exampleResult, 'should have returned a non-null result');
         assert(exampleResult.filesWithViolations == 2, 'should have the correct number of files');
         assert(exampleResult.totalViolations == 3, 'should have the correct number of violations');
-        assert(exampleResult.xmlFilePath.indexOf(testSourceDirectory) > -1, 'should have a valid xml file path');
-        assert(exampleResult.htmlFilePath.indexOf(testSourceDirectory) > -1, 'should have a valid html file path');
+        assert(exampleResult.filesToUpload.length > 0, 'should have valid files to upload');
         done();
     });
 
@@ -737,7 +735,7 @@ describe('maven Suite', function() {
         // Act
         var exampleResult;
         try {
-            exampleResult = pmd.processPmdOutput(testDirectory);
+            exampleResult = pmd.collectPmdOutput(testDirectory);
 
             // Should never reach this line
             assert(false, 'Failed to correctly throw on invalid XML');
@@ -787,9 +785,10 @@ describe('maven Suite', function() {
         responseJsonContent = setupMockResponsesForPaths(responseJsonContent, listFolderContents(agentSrcDir));
 
         // Write and set the newly-changed response file
-        var newResponseFilePath:string = path.join(agentStgDir, 'response.json');
+        var newResponseFilePath:string = path.join(__dirname, 'response.json');
+        tl.debug("Writing response file to " + newResponseFilePath);
         fs.writeFileSync(newResponseFilePath, JSON.stringify(responseJsonContent));
-        setResponseFile(newResponseFilePath);
+        setResponseFile(path.basename(newResponseFilePath));
 
         // Set up the task runner with the test settings
         var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
@@ -868,7 +867,7 @@ describe('maven Suite', function() {
         // Write and set the newly-changed response file
         var newResponseFilePath:string = path.join(__dirname, 'response.json');
         fs.writeFileSync(newResponseFilePath, JSON.stringify(responseJsonContent));
-        setResponseFile('response.json');
+        setResponseFile(path.basename(newResponseFilePath));
 
         // Set up the task runner with the test settings
         var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
@@ -932,7 +931,7 @@ describe('maven Suite', function() {
                 assert(taskRunner.stdout.length > 0, 'should have written to stdout');
                 assert(taskRunner.succeeded, 'task should have succeeded');
 
-                assert(taskRunner.ran('/usr/local/bin/mvn -f pom.xml package'),
+                assert(taskRunner.ran('/home/bin/maven/bin/mvn -f pom.xml package'),
                     'should have run maven without PMD arguments');
                 assert(taskRunner.stdout.indexOf('task.addattachment type=Distributedtask.Core.Summary;name=Code Analysis Report') < 1,
                     'should not have uploaded a Code Analysis Report build summary');
@@ -971,7 +970,7 @@ describe('maven Suite', function() {
         fs.writeFileSync(newResponseFilePath, JSON.stringify(responseJsonContent));
 
         // Set the newly-changed response file
-        setResponseFile('response.json');
+        setResponseFile(path.basename(newResponseFilePath));
 
         // Set up the task runner with the test settings
         var taskRunner:tr.TaskRunner = setupDefaultMavenTaskRunner();
