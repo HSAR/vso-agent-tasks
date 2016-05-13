@@ -702,10 +702,10 @@ describe('maven Suite', function() {
 
     it('Maven / PMD: Correct parsing of PMD XML file', (done) => {
         // Arrange
-        var testSourceDirectory = path.join(__dirname, 'data');
+        var testSourceDirectory = path.join(__dirname, 'data', 'singlemodule');
 
         // Act
-        var exampleResult = pmd.collectPmdOutput(path.join(testSourceDirectory, 'singlemodule'));
+        var exampleResult = pmd.collectPmdOutput(testSourceDirectory);
 
         // Assert
         assert(exampleResult, 'should have returned a non-null result');
