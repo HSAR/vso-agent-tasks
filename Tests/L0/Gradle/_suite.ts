@@ -1,5 +1,6 @@
 /// <reference path="../../../definitions/mocha.d.ts"/>
 /// <reference path="../../../definitions/node.d.ts"/>
+/// <reference path="../../../definitions/sonarqube-common.d.ts" />
 
 import assert = require('assert');
 import trm = require('../../lib/taskRunner');
@@ -7,6 +8,17 @@ import path = require('path');
 
 function setResponseFile(name: string) {
     process.env['MOCK_RESPONSES'] = path.join(__dirname, name);
+}
+
+function setDefaultInputs(tr:trm.TaskRunner):trm.TaskRunner {
+    tr.setInput('wrapperScript', 'gradlew'); // Make that checkPath returns true for this filename in the response file
+    tr.setInput('options', '');
+    tr.setInput('tasks', 'build');
+    tr.setInput('javaHomeSelection', 'JDKVersion');
+    tr.setInput('jdkVersion', 'default');
+    tr.setInput('publishJUnitResults', 'true');
+    tr.setInput('testResultsFiles', '**/build/test-results/TEST-*.xml');
+    return tr;
 }
 
 describe('gradle Suite', function() {
@@ -23,7 +35,7 @@ describe('gradle Suite', function() {
 	
     //TODO: The 'Test Run Title' and 'Code Coverage Tool' fields are 
     //      not used by the NodeJS task currently and so are not tested.
-	
+
 
     it('run gradle with all default inputs', (done) => {
         setResponseFile('gradleGood.json');
@@ -596,5 +608,88 @@ describe('gradle Suite', function() {
                 done(err);
             });
     })
+
+    it('run gradle with all default inputs and SonarQube analysis disabled', (done) => {
+        // Arrange
+        setResponseFile('gradleGood.json');
+
+        var tr = new trm.TaskRunner('gradle');
+        tr = setDefaultInputs(tr);
+        tr.setInput('sqAnalysisEnabled', 'false');
+
+        // Act
+        tr.run()
+            .then(() => {
+                // Assert
+                assert(tr.succeeded, 'task should have succeeded');
+                assert(tr.invokedToolCount == 1, 'should have only run gradle 1 time');
+                assert(tr.resultWasSet, 'task should have set a result');
+                assert(tr.stderr.length == 0, 'should not have written to stderr');
+                assert(tr.ran('gradlew build'), 'it should have run only the default settings');
+                done();
+            })
+            .fail((err) => {
+                console.log(tr.stdout);
+                done(err);
+            });
+    });
+
+    it('run gradle with SonarQube analysis', (done) => {
+        // Arrange
+        setResponseFile('gradleGood.json');
+
+        var tr = new trm.TaskRunner('gradle');
+        tr = setDefaultInputs(tr);
+        tr.setInput('sqAnalysisEnabled', 'true');
+        tr.setInput('sqConnectedServiceName', 'ID1');
+
+        // Act
+        tr.run()
+            .then(() => {
+                // Assert
+                assert(tr.succeeded, 'task should have succeeded');
+                assert(tr.invokedToolCount == 1, 'should have only run gradle 1 time');
+                assert(tr.resultWasSet, 'task should have set a result');
+                assert(tr.stderr.length == 0, 'should not have written to stderr');
+                assert(tr.ran('gradlew build -Dsonar.host.url=http://sonarqube/end/point -Dsonar.login=uname -Dsonar.password=pword -I ./sonar.gradle sonarqube'),
+                    'should have run the gradle wrapper with the appropriate SonarQube arguments');
+                done();
+            })
+            .fail((err) => {
+                console.log(tr.stdout);
+                done(err);
+            });
+    });
+
+    it('run gradle with SonarQube analysis and apply required parameters for older server versions', (done) => {
+        // Arrange
+        setResponseFile('gradleGood.json');
+
+        var tr = new trm.TaskRunner('gradle');
+        tr = setDefaultInputs(tr);
+        tr.setInput('sqAnalysisEnabled', 'true');
+        tr.setInput('sqConnectedServiceName', 'ID1');
+        tr.setInput('sqDbDetailsRequired', 'true');
+        tr.setInput('sqDbUrl', 'jdbc:test:tcp://localhost:8080/sonar');
+        tr.setInput('sqDbUsername', 'testDbUsername');
+        tr.setInput('sqDbPassword', 'testDbPassword');
+
+        // Act
+        tr.run()
+            .then(() => {
+                // Assert
+                assert(tr.succeeded, 'task should have succeeded');
+                assert(tr.invokedToolCount == 1, 'should have only run gradle 1 time');
+                assert(tr.resultWasSet, 'task should have set a result');
+                assert(tr.stderr.length == 0, 'should not have written to stderr');
+                assert(tr.ran('gradlew build -Dsonar.host.url=http://sonarqube/end/point -Dsonar.login=uname -Dsonar.password=pword -Dsonar.jdbc.url=jdbc:test:tcp://localhost:8080/sonar -Dsonar.jdbc.username=testDbUsername -Dsonar.jdbc.password=testDbPassword -I ./sonar.gradle sonarqube'),
+                    'should have run the gradle wrapper with the appropriate SonarQube arguments');
+                done();
+            })
+            .fail((err) => {
+                console.log(tr.stdout);
+                done(err);
+            });
+    });
 
 });
