@@ -16,5 +16,5 @@ declare module 'sonarqube-common/sonarqube-common' {
     }
 
     // Fetches configured SonarQube endpoint details.
-    export function getSonarQubeEndpointDetails(inputFieldName):SonarQubeEndpoint;
+    export function getSonarQubeEndpointFromInput(inputFieldName):SonarQubeEndpoint;
 }

@@ -28,7 +28,7 @@ export class SonarQubeEndpoint {
 }
 
 // Gets SonarQube connection endpoint details.
-export function getSonarQubeEndpointDetails(inputFieldName):SonarQubeEndpoint {
+export function getSonarQubeEndpointFromInput(inputFieldName):SonarQubeEndpoint {
     var errorMessage = "Could not decode the generic endpoint. Please ensure you are running the latest agent (min version 0.3.2)";
     if (!tl.getEndpointUrl) {
         throw new Error(errorMessage);
@@ -48,7 +48,6 @@ export function getSonarQubeEndpointDetails(inputFieldName):SonarQubeEndpoint {
     // - so not validating the values here
     var hostUsername = getSonarQubeAuthParameter(genericEndpoint, 'username');
     var hostPassword = getSonarQubeAuthParameter(genericEndpoint, 'password');
-    tl.debug("hostUsername: " + hostUsername);
 
     return new SonarQubeEndpoint(hostUrl, hostUsername, hostPassword);
 }

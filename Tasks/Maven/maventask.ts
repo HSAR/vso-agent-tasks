@@ -345,7 +345,7 @@ function getSonarQubeRunner() {
 
     console.log("SonarQube analysis is enabled");
     var mvnsq;
-    var sqEndpoint:SonarQubeEndpoint = sqCommon.getSonarQubeEndpointDetails("sqConnectedServiceName");
+    var sqEndpoint:SonarQubeEndpoint = sqCommon.getSonarQubeEndpointFromInput("sqConnectedServiceName");
 
     if (tl.getBoolInput('sqDbDetailsRequired')) {
         var sqDbUrl = tl.getInput('sqDbUrl', false);
