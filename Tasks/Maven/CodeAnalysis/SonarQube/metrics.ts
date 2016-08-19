@@ -33,6 +33,7 @@ export class SonarQubeMetrics {
     private analysisId:string = null;
     private taskDetails:any = null;
     private analysisDetails:any = null;
+    private measurementUnits:SonarQubeMeasurementUnit[] = null;
 
     /**
      * Construct a new SonarQubeMetrics instance with a specified SonarQubeServer and task ID.
@@ -56,11 +57,60 @@ export class SonarQubeMetrics {
     }
 
     /**
+     * Returns the status of the project under analysis (the quality gate status)
+     * @param analysisDetails A JSON object representation of the analysis
+     * @returns String representing the result of the project analysis
+     */
+    public static getQualityGateStatus(analysisDetails:any):string {
+        return analysisDetails.projectStatus.status;
+    }
+
+    /**
      * Returns true if the quality gate has failed.
      * @returns {Promise<boolean>} True if the quality gate has failed, false if the quality gate passed or is warning.
      */
     public static hasQualityGateFailed(qualityGateStatus:string): boolean {
         return qualityGateStatus.toUpperCase() == 'ERROR';
+    }
+
+    public static getFailedConditions(analysisDetails:any):SonarQubeFailureCondition[] {
+        var result:SonarQubeFailureCondition[] = [];
+        analysisDetails.projectStatus.conditions.forEach((condition:any) => {
+            result.push(condition as SonarQubeFailureCondition);
+        });
+        return result;
+    }
+
+    /**
+     * Makes a RESTful API call to get analysis details (e.g. quality gate status)
+     * Returns from the cache if analysis has completed.
+     * @param analysisId (optional) String representing the ID of the analysis to fetch details for.
+     *     If not specified, cached ID will be used or analysisId will be fetched
+     * @returns JSON object representation of the analysis details
+     */
+    public getAnalysisDetails(analysisId?:string):Q.Promise<Object> {
+        // Use the cache if available
+        if (!(this.analysisDetails == undefined || this.analysisDetails == null)) {
+            return Q.when(this.analysisDetails);
+        }
+
+        // If analysisId was not given, get it (either from cache or live)
+        if (analysisId == undefined || analysisId == null) {
+            return this.getAnalysisId()
+                .then((analysisId:string) => {
+                    return this.getAnalysisDetails(analysisId);
+                });
+        }
+
+        return this.server.invokeApiCall('/api/qualitygates/project_status?analysisId=' + analysisId)
+            .then((responseJson:any) => {
+                if (!responseJson.projectStatus) {
+                    tl.debug('Could not fetch quality gate details on analysis ID' + analysisId);
+                    return Q.reject(new Error(tl.loc('sqCommon_InvalidResponseFromServer')));
+                }
+
+                return responseJson;
+            });
     }
 
     /**
@@ -69,6 +119,10 @@ export class SonarQubeMetrics {
      * @returns {Promise<string>} The quality gate status, as reported by the SonarQube server.
      */
     public getQualityGateStatus(): Q.Promise<string> {
+        if (SonarQubeMetrics.isCached(this.analysisDetails)) {
+            return Q.when(SonarQubeMetrics.getQualityGateStatus(this.analysisDetails));
+        }
+
         return this.getAnalysisId()
             .then((analysisId:string) => {
                 return this.getAnalysisStatus(analysisId);
@@ -87,6 +141,30 @@ export class SonarQubeMetrics {
                 }
 
                 return TaskResult.Succeeded;
+            });
+    }
+
+    /**
+     * For all the units used by the server, this method returns the key and the friendly name, as well as the type and the id
+     * @returns {Promise<Object>} A list of all units used by the SQ server, represented by objects with fields: id, key, type, name. Rejects if server response was invalid.
+     */
+    public getMeasurementDetails():Q.Promise<SonarQubeMeasurementUnit[]> {
+        if (SonarQubeMetrics.isCached(this.measurementUnits)) {
+            console.log('Measurement units not cached, current cache is: ' + this.measurementUnits);
+            return Q.when(this.measurementUnits);
+        }
+
+        return this.server.invokeApiCall('/api/metrics/search?ps=500&f=name')
+            .then((response:any) => {
+                return Q.Promise<SonarQubeMeasurementUnit[]>((resolve, reject) => {
+                    if ((response == undefined || response == null) ||
+                        (response.metrics == undefined || response.metrics == null)) {
+                        reject(new Error(tl.loc('sqAnalysis_NoUnitsFound')));
+                    }
+
+                    this.measurementUnits = response.metrics;
+                    resolve(Q.when(this.measurementUnits));
+                });
             });
     }
 
@@ -169,12 +247,17 @@ export class SonarQubeMetrics {
      * @returns A promise, resolving with a string representing the analysis ID. Rejects on error.
      */
     private getAnalysisId():Q.Promise<string> {
+        if (this.analysisId != undefined && this.analysisId != null) {
+            return Q.when(this.analysisId);
+        }
+
         return this.waitForTaskCompletion()
             .then(() => {
                 return this.getTaskDetails();
             })
             .then((taskDetails:any) => {
-                return SonarQubeMetrics.getTaskAnalysisId(taskDetails);
+                this.analysisId = SonarQubeMetrics.getTaskAnalysisId(taskDetails)
+                return this.analysisId;
             });
     }
 
@@ -186,33 +269,7 @@ export class SonarQubeMetrics {
     private getAnalysisStatus(analysisId:string):Q.Promise<string> {
         return this.getAnalysisDetails(analysisId)
             .then((analysisDetails:any) => {
-                return SonarQubeMetrics.getProjectStatus(analysisDetails);
-            });
-    }
-
-    /**
-     * Makes a RESTful API call to get analysis details (e.g. quality gate status)
-     * Returns from the cache if analysis has completed.
-     * @param analysisId (optional) String representing the ID of the analysis to fetch details for. If not specified, cached ID will be used
-     * @returns JSON object representation of the analysis details
-     */
-    private getAnalysisDetails(analysisId?:string):Q.Promise<Object> {
-        if (this.analysisDetails != null) {
-            return Q.when(this.analysisDetails);
-        }
-
-        if (analysisId == undefined || analysisId == null) {
-            analysisId = this.analysisId;
-        }
-
-        return this.server.invokeApiCall('/api/qualitygates/project_status?analysisId=' + analysisId)
-            .then((responseJson:any) => {
-                if (!responseJson.projectStatus) {
-                    tl.debug('Could not fetch quality gate details on analysis ID' + analysisId);
-                    return Q.reject(new Error(tl.loc('sqCommon_InvalidResponseFromServer')));
-                }
-
-                return responseJson;
+                return SonarQubeMetrics.getQualityGateStatus(analysisDetails);
             });
     }
 
@@ -256,11 +313,27 @@ export class SonarQubeMetrics {
     }
 
     /**
-     * Returns the status of the project under analysis.
-     * @param analysisDetails A JSON object representation of the analysis
-     * @returns String representing the result of the project analysis
+     * Returns true if variable is cached (i.e. variable is not undef or null)
+     * @param cachedVar
+     * @returns {boolean}
      */
-    private static getProjectStatus(analysisDetails:any):string {
-        return analysisDetails.projectStatus.status;
+    private static isCached(cachedVar:any):boolean {
+        return (!(cachedVar == undefined || cachedVar == null));
+    }
+}
+
+/**
+ * Simple data class to represent a failure condition of a quality gate. Usually shown as the reason(s) a quality gate failed.
+ */
+export class SonarQubeFailureCondition {
+    constructor(public status:string, public metricKey:string, public comparator:string, public warningThreshold:string, public errorThreshold:string, public actualValue:string) {
+    }
+}
+
+/**
+ * Simple data class to represent a measurement unit used by SonarQube (e.g. a line of code, a minute of work, a blocking issue)
+ */
+export class SonarQubeMeasurementUnit {
+    constructor(public id:string, public key:string, public type:string, public name:string) {
     }
 }

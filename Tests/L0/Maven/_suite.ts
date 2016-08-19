@@ -1586,9 +1586,9 @@ describe('Maven Suite', function () {
         var taskDetailsJsonObject:any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/task_details.json'), 'utf-8'));
         mockServer.setupMockApiCall('/api/ce/task?id=asdfghjklqwertyuiopz', taskDetailsJsonObject);
 
-        var taskDetailsJsonObject:any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
-        taskDetailsJsonObject.projectStatus.status = 'OK'; // Quality gate passed
-        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', taskDetailsJsonObject);
+        var analysisDetailsJsonObject:any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
+        analysisDetailsJsonObject.projectStatus.status = 'OK'; // Quality gate passed
+        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', analysisDetailsJsonObject);
 
         return analysisMetrics.getQualityGateStatus()
             .then((qualityGateStatus:string) => {
@@ -1633,9 +1633,12 @@ describe('Maven Suite', function () {
         var taskDetailsJsonObject: any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/task_details.json'), 'utf-8'));
         mockServer.setupMockApiCall('/api/ce/task?id=asdfghjklqwertyuiopz', taskDetailsJsonObject);
 
-        var taskDetailsJsonObject: any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
-        taskDetailsJsonObject.projectStatus.status = 'ERROR'; // Quality gate failed
-        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', taskDetailsJsonObject);
+        var analysisDetailsJsonObject: any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
+        analysisDetailsJsonObject.projectStatus.status = 'ERROR'; // Quality gate failed
+        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', analysisDetailsJsonObject);
+
+        var unitsJsonObject: any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/units.json'), 'utf-8'));
+        mockServer.setupMockApiCall('/api/metrics/search?ps=500&f=name', unitsJsonObject);
 
         return sqReportBuilder.fetchMetricsAndCreateReport(true)
             .then((report:string) => {
@@ -1657,9 +1660,9 @@ describe('Maven Suite', function () {
         var taskDetailsJsonObject: any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/task_details.json'), 'utf-8'));
         mockServer.setupMockApiCall('/api/ce/task?id=asdfghjklqwertyuiopz', taskDetailsJsonObject);
 
-        var taskDetailsJsonObject: any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
-        taskDetailsJsonObject.projectStatus.status = 'OK'; // Quality gate passed
-        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', taskDetailsJsonObject);
+        var analysisDetailsJsonObject: any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
+        analysisDetailsJsonObject.projectStatus.status = 'OK'; // Quality gate passed
+        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', analysisDetailsJsonObject);
 
         return sqReportBuilder.fetchMetricsAndCreateReport(true)
             .then((report:string) => {
@@ -1668,7 +1671,7 @@ describe('Maven Suite', function () {
                 assertBuildSummaryContains(report, 'Passed');
             });
     });
-
+    
     it('SonarQube common - Build summary fails correctly when server returns an error', () => {
         // Arrange
         var mockRunSettings: SonarQubeRunSettings = new SonarQubeRunSettings("projectKey", "serverUrl", "http://dashboardUrl", "asdfghjklqwertyuiopz", "taskUrl");
@@ -1743,9 +1746,9 @@ describe('Maven Suite', function () {
         var taskDetailsJsonObject:any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/task_details.json'), 'utf-8'));
         mockServer.setupMockApiCall('/api/ce/task?id=asdfghjklqwertyuiopz', taskDetailsJsonObject);
 
-        var taskDetailsJsonObject:any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
-        taskDetailsJsonObject.projectStatus.status = 'ERROR'; // Quality gate failed
-        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', taskDetailsJsonObject);
+        var analysisDetailsJsonObject:any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
+        analysisDetailsJsonObject.projectStatus.status = 'ERROR'; // Quality gate failed
+        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', analysisDetailsJsonObject);
 
         // Act
         return analysisMetrics.getTaskResultFromQualityGateStatus()
@@ -1765,9 +1768,9 @@ describe('Maven Suite', function () {
         var taskDetailsJsonObject:any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/task_details.json'), 'utf-8'));
         mockServer.setupMockApiCall('/api/ce/task?id=asdfghjklqwertyuiopz', taskDetailsJsonObject);
 
-        var taskDetailsJsonObject:any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
-        taskDetailsJsonObject.projectStatus.status = 'OK'; // Quality gate passed
-        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', taskDetailsJsonObject);
+        var analysisDetailsJsonObject:any = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/analysis_details.json'), 'utf-8'));
+        analysisDetailsJsonObject.projectStatus.status = 'OK'; // Quality gate passed
+        mockServer.setupMockApiCall('/api/qualitygates/project_status?analysisId=12345', analysisDetailsJsonObject);
 
         // capture process.stdout and process.exit, along with useful data to assert on
         var capturedStream = captureStream(process.stdout);
